@@ -34,6 +34,11 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
@@ -57,16 +62,33 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Add Rust Android target
+        run: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup target add aarch64-linux-android
+
       - name: Show toolchain
         run: |
           flutter --version
           flutter doctor -v || true
+          rustup target list --installed
 
-      - name: Resolve Dart dependencies
-        run: flutter pub get
+      - name: Resolve Dart dependencies and l10n
+        run: |
+          flutter pub get
+          flutter gen-l10n
 
       - name: Generate Freezed/Riverpod/FlutterGen code
         run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Build foliate-js assets
+        run: |
+          npm ci --prefix assets/foliate-js
+          (cd assets/foliate-js && node node_modules/webpack-cli/bin/cli.js --config webpack.config.js)
 
       - name: Configure signing
         run: |
