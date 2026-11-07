@@ -1,0 +1,28 @@
+name: build-apk
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+
+      # 生成一个自用签名（也可改成 build debug 免签名）
+      - name: Signing
+        run: |
+          keytool -genkeypair -v -keystore android/app/release.jks -alias modu \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass modu123456 -keypass modu123456 \
+            -dname "CN=Modu, O=Modu, C=CN"
+          printf "storePassword=modu123456\nkeyPassword=modu123456\nkeyAlias=modu\nstoreFile=release.jks\n" > android/key.properties
+
+      - run: flutter build apk --release --target-platform android-arm64 --split-per-abi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: modu-apk
+          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
