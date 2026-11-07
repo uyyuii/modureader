@@ -1,0 +1,107 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'lib/**'
+      - 'test/**'
+      - 'android/**'
+      - 'assets/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/build-apk.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 13114758
+
+      - name: Install required Android packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;3.22.1"
+          sdkmanager --list_installed
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - name: Show toolchain
+        run: |
+          flutter --version
+          flutter doctor -v || true
+
+      - name: Resolve Dart dependencies
+        run: flutter pub get
+
+      - name: Generate Freezed/Riverpod/FlutterGen code
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Configure signing
+        run: |
+          keytool -genkeypair -v \
+            -keystore android/app/release.jks \
+            -alias modu \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass modu123456 -keypass modu123456 \
+            -dname "CN=Modu, O=Modu, C=CN"
+          cat > android/key.properties <<EOF
+          storePassword=modu123456
+          keyPassword=modu123456
+          keyAlias=modu
+          storeFile=release.jks
+          EOF
+
+      - name: Build arm64 release APK
+        run: |
+          set -o pipefail
+          flutter build apk \
+            --release \
+            --target-platform android-arm64 \
+            --split-per-abi 2>&1 | tee build.log
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_number }}
+          path: build.log
+          if-no-files-found: ignore
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: modu-arm64-release-${{ github.run_number }}
+          path: build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error
+          retention-days: 30
