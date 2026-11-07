@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:anx_reader/service/ios_linked_books.dart';
+import 'package:anx_reader/service/linked_books.dart';
 
 import 'package:anx_reader/dao/book.dart';
 import 'package:anx_reader/enums/sync_direction.dart';
@@ -142,7 +142,7 @@ class SyncStatus extends _$SyncStatus {
         .map((e) {
           final filePath = e.filePath.split('/').last;
           final isExist = localFiles.contains(filePath) ||
-              (IosLinkedBooks.resolve(e.filePath) != null &&
+              (LinkedBooks.resolve(e.filePath) != null &&
                   File(e.fileFullPath).existsSync());
           return isExist ? e.id : null;
         })

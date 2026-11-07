@@ -1,7 +1,7 @@
 import 'package:anx_reader/utils/app_motion.dart';
 import 'package:anx_reader/l10n/modu_strings.dart';
 import 'dart:io';
-import 'package:anx_reader/service/ios_linked_books.dart';
+import 'package:anx_reader/service/linked_books.dart';
 import 'dart:math';
 
 import 'package:anx_reader/config/shared_preference_provider.dart';
@@ -280,7 +280,7 @@ class BookBottomSheet extends ConsumerWidget {
           if (await oldFile.exists()) {
             await oldFile.delete();
           }
-          await IosLinkedBooks.forget(book.filePath);
+          await LinkedBooks.forget(book.filePath);
         }
 
         // Clean up temporary file if text conversion happened
@@ -445,7 +445,7 @@ class BookBottomSheet extends ConsumerWidget {
                   enabled: local &&
                       Prefs().webdavStatus &&
                       !active &&
-                      !IosLinkedBooks.isLinked(book.filePath)),
+                      !LinkedBooks.isLinked(book.filePath)),
               const PopupMenuDivider(),
               entry(BookAction.delete, Icons.delete_outline,
                   L10n.of(context).commonDelete),

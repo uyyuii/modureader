@@ -1,7 +1,7 @@
 import 'package:anx_reader/utils/app_motion.dart';
 import 'dart:async';
 import 'package:anx_reader/service/feedback/runtime_diagnostics.dart';
-import 'package:anx_reader/service/ios_linked_books.dart';
+import 'package:anx_reader/service/linked_books.dart';
 import 'package:anx_reader/l10n/modu_strings.dart';
 import 'dart:io' as io;
 import 'package:anx_reader/service/book.dart' show getBookMetadata;
@@ -868,7 +868,7 @@ class Sync extends _$Sync {
   }
 
   Future<void> releaseBook(Book book) async {
-    if (IosLinkedBooks.isLinked(book.filePath)) {
+    if (LinkedBooks.isLinked(book.filePath)) {
       AnxToast.show(ModuStrings.text(
           navigatorKey.currentContext!,
           '原位书籍未复制到默读，无需释放原书空间。',
@@ -987,7 +987,7 @@ class Sync extends _$Sync {
       // A shelf widget can still hold the pre-replacement filename.
       book = await bookDao.selectBookById(book.id);
       if (book.isDeleted) return;
-      if (IosLinkedBooks.isLinked(book.filePath)) {
+      if (LinkedBooks.isLinked(book.filePath)) {
         throw StateError(
             '原位书籍未上传原书，请在当前设备重新授权或普通导入。 / Add the original in place or import it on this device.');
       }

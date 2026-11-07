@@ -3,7 +3,7 @@ import 'package:anx_reader/utils/get_path/get_temp_dir.dart';
 import 'package:anx_reader/utils/app_motion.dart';
 import 'dart:io';
 import 'dart:async';
-import 'package:anx_reader/service/ios_linked_books.dart';
+import 'package:anx_reader/service/linked_books.dart';
 import 'package:anx_reader/l10n/modu_strings.dart';
 import 'package:anx_reader/widgets/page_router/reading_route.dart';
 
@@ -516,11 +516,11 @@ Future<void> pushToReadingPage(
   }
 
   if (!File(book.fileFullPath).existsSync()) {
-    if (IosLinkedBooks.isLinked(book.filePath)) {
+    if (LinkedBooks.isLinked(book.filePath)) {
       AnxToast.show(ModuStrings.text(
           context,
-          '原书不可访问。iOS 请通过“原位添加”重新授权，其他平台请普通导入原书。',
-          'Original unavailable. Add it in place again on iOS, or import it normally on other platforms.'));
+          '原书不可访问。请通过“原位添加”重新选择原书，或使用普通导入。',
+          'Original unavailable. Add it in place again, or import it normally.'));
       return;
     }
     ref.read(syncProvider.notifier).downloadBook(book);
@@ -600,7 +600,7 @@ Future<void> saveBook(
 
   final extension = file.path.split('.').last;
 
-  if (linkedPath != null && IosLinkedBooks.resolve(linkedPath) != file.path) {
+  if (linkedPath != null && LinkedBooks.resolve(linkedPath) != file.path) {
     throw const FileSystemException('Invalid linked book access');
   }
   final dbFilePath = linkedPath ?? 'file/$newBookName.$extension';

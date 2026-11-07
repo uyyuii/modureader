@@ -621,7 +621,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                       value: 1,
                       child: Text(
                           ModuStrings.text(context, '导入文件夹', 'Import folder'))),
-                  if (Platform.isIOS) ...[
+                  if (Platform.isIOS || Platform.isAndroid) ...[
                     PopupMenuItem(
                         value: 2,
                         child: Text(ModuStrings.text(context, '原位添加文件（不复制）',

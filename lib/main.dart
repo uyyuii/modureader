@@ -3,7 +3,7 @@ import 'package:anx_reader/service/receive_file/external_book_inbox.dart';
 import 'package:anx_reader/service/receive_file/receive_share.dart';
 import 'dart:io';
 import 'package:anx_reader/service/feedback/runtime_diagnostics.dart';
-import 'package:anx_reader/service/ios_linked_books.dart';
+import 'package:anx_reader/service/linked_books.dart';
 import 'package:anx_reader/widgets/common/app_scroll_behavior.dart';
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -153,9 +153,9 @@ Future<void> main(List<String> arguments) async {
       await prefs.setBool('storageMigrationSucceeded', committed);
     }
   }
-  if (Platform.isIOS) {
+  if (LinkedBooks.supported) {
     try {
-      await IosLinkedBooks.restore();
+      await LinkedBooks.restore();
     } catch (_) {
       // Unavailable providers must not prevent opening the local library.
       debugPrint('Unable to restore linked-book access');

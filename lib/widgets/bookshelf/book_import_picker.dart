@@ -5,7 +5,7 @@ import 'dart:io';
 import 'package:anx_reader/dao/book.dart';
 import 'package:anx_reader/providers/book_list.dart';
 import 'package:anx_reader/providers/sync_status.dart';
-import 'package:anx_reader/service/ios_linked_books.dart';
+import 'package:anx_reader/service/linked_books.dart';
 import 'package:anx_reader/service/md5_service.dart';
 
 import 'package:anx_reader/l10n/modu_strings.dart';
@@ -16,6 +16,7 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 // One acquisition/selection flow at a time, including drops on a reading page.
 bool _pickingBooks = false;
@@ -33,13 +34,17 @@ Future<void> pickBooksForImport(BuildContext context, WidgetRef ref,
       externalBookInbox.add(entries.map((entry) => entry.id));
       return;
     }
-    if (inPlace && !Platform.isIOS) return;
+    if (inPlace && !LinkedBooks.supported) return;
+    if (inPlace) {
+      final allowed = await _ensureLinkedAccess(context);
+      if (!allowed || !context.mounted) return;
+    }
     List<BookImportEntry>? entries;
     if (inPlace) {
       entries = await _withImportProgress(
           context,
           () => MobileBookFolder.pick(
-              files: !folder, extensions: IosLinkedBooks.extensions));
+              files: !folder, extensions: LinkedBooks.extensions));
     } else if (mobileFolder) {
       entries = await _withImportProgress(context, MobileBookFolder.pick);
     } else if (folder) {
@@ -93,8 +98,8 @@ Future<void> pickBooksForImport(BuildContext context, WidgetRef ref,
         for (final entry in selected) {
           String? key;
           try {
-            key = await IosLinkedBooks.link(entry.id);
-            final file = File(IosLinkedBooks.resolve(key)!);
+            key = await LinkedBooks.link(entry.id);
+            final file = File(LinkedBooks.resolve(key)!);
             final md5 = await MD5Service.calculateFileMd5(file.path);
             if (md5 == null) {
               throw const FileSystemException('Cannot verify book');
@@ -104,7 +109,7 @@ Future<void> pickBooksForImport(BuildContext context, WidgetRef ref,
             if (existing != null &&
                 !existing.isDeleted &&
                 await File(existing.fileFullPath).exists()) {
-              await IosLinkedBooks.forget(key);
+              await LinkedBooks.forget(key);
               key = null;
               continue;
             }
@@ -118,7 +123,7 @@ Future<void> pickBooksForImport(BuildContext context, WidgetRef ref,
           } finally {
             if (key != null &&
                 !(await bookDao.getCurrentBooks()).contains(key)) {
-              await IosLinkedBooks.forget(key);
+              await LinkedBooks.forget(key);
             }
           }
         }
@@ -168,6 +173,56 @@ Future<void> pickBooksForImport(BuildContext context, WidgetRef ref,
       _pickingBooks = false;
     }
   }
+}
+
+/// Android reads linked books through real file paths, which requires the
+/// special "All files access" grant on Android 11+ (the legacy storage
+/// permission on older releases). The picker opens only after it is granted.
+Future<bool> _ensureLinkedAccess(BuildContext context) async {
+  if (!Platform.isAndroid) return true;
+
+  final sdk = await LinkedBooks.androidSdkInt();
+  if (sdk < 30) {
+    final status = await Permission.storage.request();
+    if (status.isGranted) return true;
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(ModuStrings.text(
+              context,
+              '请允许“存储”权限后重试原位添加。',
+              'Allow storage access, then try adding in place again.'))));
+    }
+    return false;
+  }
+
+  if (await LinkedBooks.hasAllFilesAccess()) return true;
+  if (!context.mounted) return false;
+
+  final openSettings = await showDialog<bool>(
+    animationStyle: AppMotion.style,
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(ModuStrings.text(
+          dialogContext, '需要“所有文件访问权限”', 'All files access required')),
+      content: Text(ModuStrings.text(
+          dialogContext,
+          '“原位添加”直接读取原书、不复制文件，因此需要“所有文件访问权限”。\n\n请在系统设置中为默读开启该权限，返回后再次选择“原位添加”。原书不会被修改。',
+          'Reading books in place opens the original file without copying it, so Modu needs the “All files access” permission.\n\nEnable it for Modu in system settings, come back and choose “Add in place” again. Originals are never modified.')),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(ModuStrings.text(dialogContext, '取消', 'Cancel'))),
+        FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child:
+                Text(ModuStrings.text(dialogContext, '去设置', 'Open settings'))),
+      ],
+    ),
+  );
+  if (openSettings == true) {
+    await LinkedBooks.requestAllFilesAccess();
+  }
+  return false;
 }
 
 Future<T> _withImportProgress<T>(
