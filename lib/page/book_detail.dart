@@ -1,5 +1,6 @@
 import 'package:anx_reader/utils/app_motion.dart';
 import 'package:anx_reader/config/shared_preference_provider.dart';
+
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui';
@@ -19,6 +20,7 @@ import 'package:anx_reader/providers/tags.dart';
 import 'package:anx_reader/service/book.dart';
 import 'package:anx_reader/utils/date/convert_seconds.dart';
 import 'package:anx_reader/utils/get_path/get_base_path.dart';
+import 'package:anx_reader/utils/import_book.dart';
 import 'package:anx_reader/utils/log/common.dart';
 import 'package:anx_reader/utils/color/hash_color.dart';
 import 'package:anx_reader/widgets/bookshelf/book_cover.dart';
@@ -76,8 +78,10 @@ class _BookDetailState extends ConsumerState<BookDetail> {
     ref.read(bookListProvider.notifier).refresh();
   }
 
-  Future<void> _adoptWereadMetadata(
-      {String? description, Uint8List? cover}) async {
+  Future<void> _adoptWereadMetadata({
+    String? description,
+    Uint8List? cover,
+  }) async {
     String? coverPath;
     File? created;
     if (cover != null) {
@@ -101,8 +105,11 @@ class _BookDetailState extends ConsumerState<BookDetail> {
       }
     }
     try {
-      await bookDao.updateExternalMetadata(_book.id,
-          coverPath: coverPath, description: description);
+      await bookDao.updateExternalMetadata(
+        _book.id,
+        coverPath: coverPath,
+        description: description,
+      );
     } catch (_) {
       if (created != null && await created.exists()) await created.delete();
       rethrow;
@@ -136,9 +143,7 @@ class _BookDetailState extends ConsumerState<BookDetail> {
               Theme.of(context).colorScheme.surface.withAlpha(10),
               // Colors.transparent,
             ],
-          ).createShader(
-            Rect.fromLTRB(0, 0, rect.width, rect.height),
-          );
+          ).createShader(Rect.fromLTRB(0, 0, rect.width, rect.height));
         },
         blendMode: BlendMode.dstATop,
         child: BookCover(
@@ -170,45 +175,48 @@ class _BookDetailState extends ConsumerState<BookDetail> {
               left: 0,
               top: 150 + top,
               child: SizedBox(
-                  height: 120,
-                  width: width,
-                  child: FilledContainer(
-                    margin: const EdgeInsets.only(bottom: 3),
-                    child: Row(
-                      children: [
-                        const Spacer(),
-                        // progress ring
-                        Stack(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(20),
-                              width: 100,
-                              height: 100,
-                              child: EinkStaticIndicator(
-                                  child: CircularProgressIndicator(
+                height: 120,
+                width: width,
+                child: FilledContainer(
+                  margin: const EdgeInsets.only(bottom: 3),
+                  child: Row(
+                    children: [
+                      const Spacer(),
+                      // progress ring
+                      Stack(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(20),
+                            width: 100,
+                            height: 100,
+                            child: EinkStaticIndicator(
+                              child: CircularProgressIndicator(
                                 value: widget.book.readingPercentage,
                                 strokeWidth: 6,
                                 backgroundColor: Colors.grey[400],
                                 valueColor: AlwaysStoppedAnimation<Color>(
-                                    Theme.of(context).colorScheme.primary),
-                              )),
-                            ),
-                            Positioned.fill(
-                              child: Center(
-                                child: Text(
-                                  "${(widget.book.readingPercentage * 100).toStringAsFixed(0)}%",
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                                  Theme.of(context).colorScheme.primary,
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  )),
+                          ),
+                          Positioned.fill(
+                            child: Center(
+                              child: Text(
+                                "${(widget.book.readingPercentage * 100).toStringAsFixed(0)}%",
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
             // book cover
             Positioned(
@@ -220,11 +228,8 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                     return;
                   }
 
-                  FilePickerResult? result =
-                      await FilePicker.platform.pickFiles(
-                    type: FileType.image,
-                    allowMultiple: false,
-                  );
+                  FilePickerResult? result = await FilePicker.platform
+                      .pickFiles(type: FileType.image, allowMultiple: false);
 
                   if (result == null) {
                     return;
@@ -233,12 +238,9 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                   File image = File(result.files.single.path!);
 
                   AnxLog.info('BookDetail: Image path: ${image.path}');
-                  // Delete the existing cover image file
-                  final File oldCoverImageFile =
-                      File(widget.book.coverFullPath);
-                  if (await oldCoverImageFile.exists()) {
-                    await oldCoverImageFile.delete();
-                  }
+                  final File oldCoverImageFile = File(
+                    widget.book.coverFullPath,
+                  );
 
                   String oldName = widget.book.coverPath
                       .split('-')
@@ -248,23 +250,31 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                     oldName = 'cover/$oldName';
                   }
 
-                  String newPath =
-                      '$oldName-${DateTime.now().millisecondsSinceEpoch.toString()}.png'
-                          .trim();
+                  final extension = image.path.contains('.')
+                      ? image.path.split('.').last.toLowerCase()
+                      : 'jpg';
+                  final newPath = await saveImageBytesToLocal(
+                    await image.readAsBytes(),
+                    '$oldName-${DateTime.now().millisecondsSinceEpoch}',
+                    extension: extension,
+                  );
 
                   AnxLog.info('BookDetail: New path: $newPath');
-                  String newFullPath = getBasePath(newPath);
-
-                  final File newCoverImageFile = File(newFullPath);
-                  await newCoverImageFile
-                      .writeAsBytes(await image.readAsBytes());
                   widget.book.coverPath = newPath;
+
+                  if (await oldCoverImageFile.exists() &&
+                      oldCoverImageFile.path != getBasePath(newPath)) {
+                    await oldCoverImageFile.delete();
+                  }
 
                   setState(() {
                     widget.book.coverPath = newPath;
                     bookDao.updateBook(widget.book);
-                    Sync().syncData(SyncDirection.upload, ref,
-                        trigger: SyncTrigger.auto);
+                    Sync().syncData(
+                      SyncDirection.upload,
+                      ref,
+                      trigger: SyncTrigger.auto,
+                    );
                     ref.read(bookListProvider.notifier).refresh();
                   });
                 },
@@ -283,8 +293,11 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                   ),
                   child: Hero(
                     tag: widget.book.coverFullPath,
-                    child:
-                        BookCover(book: widget.book, height: 230, width: 160),
+                    child: BookCover(
+                      book: widget.book,
+                      height: 230,
+                      width: 160,
+                    ),
                   ),
                 ),
               ),
@@ -301,10 +314,8 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                 itemCount: 5,
                 itemSize: 20,
                 itemPadding: const EdgeInsets.symmetric(horizontal: 4.0),
-                itemBuilder: (context, _) => const Icon(
-                  Icons.star,
-                  color: Colors.amber,
-                ),
+                itemBuilder: (context, _) =>
+                    const Icon(Icons.star, color: Colors.amber),
                 onRatingUpdate: (rating) {
                   setState(() {
                     this.rating = rating;
@@ -389,8 +400,11 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                     setState(() {
                       isEditing = false;
                       bookDao.updateBook(widget.book);
-                      Sync().syncData(SyncDirection.upload, ref,
-                          trigger: SyncTrigger.manual);
+                      Sync().syncData(
+                        SyncDirection.upload,
+                        ref,
+                        trigger: SyncTrigger.manual,
+                      );
                       ref.read(bookListProvider.notifier).refresh();
                     });
                   },
@@ -407,17 +421,15 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                     setState(() {
                       isEditing = true;
                     });
-                  }),
+                  },
+                ),
         ],
       );
     }
 
     Widget buildBookStatistics() {
       Widget buildNthBooksItem() {
-        TextStyle textStyle = const TextStyle(
-          fontSize: 15,
-          color: Colors.grey,
-        );
+        TextStyle textStyle = const TextStyle(fontSize: 15, color: Colors.grey);
         TextStyle digitStyle = const TextStyle(
           fontSize: 30,
           fontWeight: FontWeight.bold,
@@ -426,10 +438,11 @@ class _BookDetailState extends ConsumerState<BookDetail> {
         return Padding(
           padding: const EdgeInsets.only(left: 20, right: 20),
           child: highlightDigit(
-              context,
-              L10n.of(context).bookDetailNthBook(widget.book.id),
-              textStyle,
-              digitStyle),
+            context,
+            L10n.of(context).bookDetailNthBook(widget.book.id),
+            textStyle,
+            digitStyle,
+          ),
         );
       }
 
@@ -449,10 +462,7 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                 ),
                 const TextSpan(
                   text: ' / 5',
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: Colors.grey,
-                  ),
+                  style: TextStyle(fontSize: 15, color: Colors.grey),
                 ),
               ],
             ),
@@ -466,10 +476,7 @@ class _BookDetailState extends ConsumerState<BookDetail> {
           fontWeight: FontWeight.bold,
           color: Theme.of(context).textTheme.bodyLarge!.color,
         );
-        TextStyle textStyle = const TextStyle(
-          fontSize: 15,
-          color: Colors.grey,
-        );
+        TextStyle textStyle = const TextStyle(fontSize: 15, color: Colors.grey);
         return FutureBuilder<int>(
           future: readingTimeDao.selectTotalReadingTimeByBookId(widget.book.id),
           builder: (BuildContext context, AsyncSnapshot<int> snapshot) {
@@ -544,8 +551,9 @@ class _BookDetailState extends ConsumerState<BookDetail> {
         child: AsyncSkeletonWrapper(
           asyncValue: ref.watch(bookTagEditorProvider(widget.book.id)),
           builder: (state, _) {
-            final notifier =
-                ref.read(bookTagEditorProvider(widget.book.id).notifier);
+            final notifier = ref.read(
+              bookTagEditorProvider(widget.book.id).notifier,
+            );
             Future<void> showTagEditDialog(Tag tag) async {
               await TagChip.showEditDialog(
                 context: context,
@@ -584,8 +592,9 @@ class _BookDetailState extends ConsumerState<BookDetail> {
               ref.read(bookListProvider.notifier).refresh();
             }
 
-            final attachedTags =
-                state.tags.where((t) => state.isAttached(t.id)).toList();
+            final attachedTags = state.tags
+                .where((t) => state.isAttached(t.id))
+                .toList();
 
             if (!isEditing) {
               return Column(
@@ -651,18 +660,22 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                                   hintText: L10n.of(context).tagNewPlaceholder,
                                   isDense: true,
                                   contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 8),
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
                                 ),
                                 onChanged: (_) {
                                   setState(() {
                                     final text = _newTagController.text.trim();
-                                    _pendingTagColor =
-                                        text.isEmpty ? null : hashColor(text);
+                                    _pendingTagColor = text.isEmpty
+                                        ? null
+                                        : hashColor(text);
                                   });
                                 },
                                 onSubmitted: (value) async {
                                   if (value.trim().isEmpty) return;
-                                  final color = _pendingTagColor ??
+                                  final color =
+                                      _pendingTagColor ??
                                       hashColor(value.trim());
                                   await notifier.createAndAttach(
                                     value.trim(),
@@ -677,31 +690,34 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Builder(builder: (context) {
-                            final currentText = _newTagController.text.trim();
-                            final defaultColor = _pendingTagColor ??
-                                (currentText.isEmpty
-                                    ? hashColor('tag')
-                                    : hashColor(currentText));
-                            return IconButton(
-                              tooltip: L10n.of(context).tagColorTooltip,
-                              icon: Icon(Icons.circle, color: defaultColor),
-                              onPressed: currentText.isEmpty
-                                  ? null
-                                  : () async {
-                                      final picked = await showRgbColorPicker(
-                                        context: context,
-                                        initialColor: defaultColor,
-                                        allowAlpha: false,
-                                      );
-                                      if (picked != null) {
-                                        setState(() {
-                                          _pendingTagColor = picked;
-                                        });
-                                      }
-                                    },
-                            );
-                          }),
+                          Builder(
+                            builder: (context) {
+                              final currentText = _newTagController.text.trim();
+                              final defaultColor =
+                                  _pendingTagColor ??
+                                  (currentText.isEmpty
+                                      ? hashColor('tag')
+                                      : hashColor(currentText));
+                              return IconButton(
+                                tooltip: L10n.of(context).tagColorTooltip,
+                                icon: Icon(Icons.circle, color: defaultColor),
+                                onPressed: currentText.isEmpty
+                                    ? null
+                                    : () async {
+                                        final picked = await showRgbColorPicker(
+                                          context: context,
+                                          initialColor: defaultColor,
+                                          allowAlpha: false,
+                                        );
+                                        if (picked != null) {
+                                          setState(() {
+                                            _pendingTagColor = picked;
+                                          });
+                                        }
+                                      },
+                              );
+                            },
+                          ),
                           const SizedBox(width: 4),
                           OutlinedButton(
                             onPressed: () async {
@@ -709,8 +725,10 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                               if (value.isEmpty) return;
                               final color =
                                   _pendingTagColor ?? hashColor(value);
-                              await notifier.createAndAttach(value,
-                                  color: color);
+                              await notifier.createAndAttach(
+                                value,
+                                color: color,
+                              );
                               ref.read(bookListProvider.notifier).refresh();
                               _newTagController.clear();
                               _pendingTagColor = null;
@@ -734,14 +752,16 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                   spacing: 8,
                   runSpacing: 8,
                   children: state.tags
-                      .map((tag) => TagChip(
-                            label: tag.name,
-                            color: tag.color,
-                            selected: state.isAttached(tag.id),
-                            onTap: () => toggle(tag),
-                            onLongPress: () => showTagEditDialog(tag),
-                            dense: false,
-                          ))
+                      .map(
+                        (tag) => TagChip(
+                          label: tag.name,
+                          color: tag.color,
+                          selected: state.isAttached(tag.id),
+                          onTap: () => toggle(tag),
+                          onLongPress: () => showTagEditDialog(tag),
+                          dense: false,
+                        ),
+                      )
                       .toList(),
                 ),
               ],
@@ -755,39 +775,39 @@ class _BookDetailState extends ConsumerState<BookDetail> {
       Widget buildReadingDetail() {
         return FutureBuilder<List<ReadingTime>>(
           future: readingTimeDao.selectReadingTimeByBookId(widget.book.id),
-          builder: (BuildContext context,
-              AsyncSnapshot<List<ReadingTime>> snapshot) {
-            if (snapshot.hasData) {
-              List<ReadingTime> readingTimes = snapshot.data!;
-              return Column(
-                children: List.generate(readingTimes.length, (index) {
-                  int totalReadingTime = readingTimes[index].readingTime;
-                  return Row(
-                    children: [
-                      Text(
-                        readingTimes[index].dateOnly ??
-                            readingTimes[index].date ??
-                            '',
-                        style: const TextStyle(
-                          fontSize: 15,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        convertSeconds(totalReadingTime),
-                        style: const TextStyle(
-                          fontSize: 15,
-                        ),
-                      ),
-                    ],
+          builder:
+              (
+                BuildContext context,
+                AsyncSnapshot<List<ReadingTime>> snapshot,
+              ) {
+                if (snapshot.hasData) {
+                  List<ReadingTime> readingTimes = snapshot.data!;
+                  return Column(
+                    children: List.generate(readingTimes.length, (index) {
+                      int totalReadingTime = readingTimes[index].readingTime;
+                      return Row(
+                        children: [
+                          Text(
+                            readingTimes[index].dateOnly ??
+                                readingTimes[index].date ??
+                                '',
+                            style: const TextStyle(fontSize: 15),
+                          ),
+                          const Spacer(),
+                          Text(
+                            convertSeconds(totalReadingTime),
+                            style: const TextStyle(fontSize: 15),
+                          ),
+                        ],
+                      );
+                    }),
                   );
-                }),
-              );
-            } else {
-              return const EinkStaticIndicator(
-                  child: CircularProgressIndicator());
-            }
-          },
+                } else {
+                  return const EinkStaticIndicator(
+                    child: CircularProgressIndicator(),
+                  );
+                }
+              },
         );
       }
 
@@ -797,29 +817,30 @@ class _BookDetailState extends ConsumerState<BookDetail> {
       );
       return SingleChildScrollView(
         child: SizedBox(
-            // height: 500,
-            width: MediaQuery.of(context).size.width,
-            child: FilledContainer(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${L10n.of(context).bookDetailImportDate}${widget.book.createTime.toString().substring(0, 10)}',
-                    style: textStyle,
-                  ),
-                  Text(
-                    '${L10n.of(context).bookDetailLastReadDate}${widget.book.updateTime.toString().substring(0, 10)}',
-                    style: textStyle,
-                  ),
-                  const Divider(),
-                  SizedBox(
-                    // height: 200,
-                    child: buildReadingDetail(),
-                  ),
-                ],
-              ),
-            )),
+          // height: 500,
+          width: MediaQuery.of(context).size.width,
+          child: FilledContainer(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${L10n.of(context).bookDetailImportDate}${widget.book.createTime.toString().substring(0, 10)}',
+                  style: textStyle,
+                ),
+                Text(
+                  '${L10n.of(context).bookDetailLastReadDate}${widget.book.updateTime.toString().substring(0, 10)}',
+                  style: textStyle,
+                ),
+                const Divider(),
+                SizedBox(
+                  // height: 200,
+                  child: buildReadingDetail(),
+                ),
+              ],
+            ),
+          ),
+        ),
       );
     }
 
@@ -848,8 +869,9 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                       : Colors.transparent,
                   title: AnimatedOpacity(
                     opacity: _isCollapsed ? 1.0 : 0.0,
-                    duration:
-                        AppMotion.duration(const Duration(milliseconds: 300)),
+                    duration: AppMotion.duration(
+                      const Duration(milliseconds: 300),
+                    ),
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(
@@ -867,9 +889,9 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                     child: LayoutBuilder(
                       builder: (context, constraints) {
-                        if (Prefs()
-                            .appLayoutMode
-                            .usesWideLayout(constraints.maxWidth)) {
+                        if (Prefs().appLayoutMode.usesWideLayout(
+                          constraints.maxWidth,
+                        )) {
                           return Row(
                             children: [
                               Expanded(
@@ -877,7 +899,8 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                                 child: Column(
                                   children: [
                                     buildBookBaseDetail(
-                                        constraints.maxWidth / 2 - 20),
+                                      constraints.maxWidth / 2 - 20,
+                                    ),
                                     buildTagEditor(),
                                     buildEditButton(),
                                     const SizedBox(height: 5),
@@ -891,8 +914,9 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                                       bookTitle: _book.title,
                                     ),
                                     WereadBookCard(
-                                        book: _book,
-                                        onAdopt: _adoptWereadMetadata),
+                                      book: _book,
+                                      onAdopt: _adoptWereadMetadata,
+                                    ),
                                   ],
                                 ),
                               ),
@@ -901,7 +925,9 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                                 flex: 1,
                                 child: Padding(
                                   padding: const EdgeInsets.only(
-                                      top: 20, bottom: 20),
+                                    top: 20,
+                                    bottom: 20,
+                                  ),
                                   child: buildMoreDetail(),
                                 ),
                               ),
@@ -924,7 +950,9 @@ class _BookDetailState extends ConsumerState<BookDetail> {
                                 bookTitle: _book.title,
                               ),
                               WereadBookCard(
-                                  book: _book, onAdopt: _adoptWereadMetadata),
+                                book: _book,
+                                onAdopt: _adoptWereadMetadata,
+                              ),
                               const SizedBox(height: 15),
                               buildMoreDetail(),
                             ],

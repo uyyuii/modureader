@@ -1,11 +1,15 @@
 import 'package:anx_reader/utils/toast/common.dart';
 import 'package:anx_reader/service/receive_file/external_book_inbox.dart';
 import 'package:anx_reader/service/receive_file/receive_share.dart';
+
 import 'dart:io';
+
 import 'package:anx_reader/service/feedback/runtime_diagnostics.dart';
 import 'package:anx_reader/service/linked_books.dart';
 import 'package:anx_reader/widgets/common/app_scroll_behavior.dart';
+
 import 'dart:async';
+
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:anx_reader/utils/app_motion.dart';
 import 'package:anx_reader/widgets/app_route_surface.dart';
@@ -37,6 +41,7 @@ import 'package:anx_reader/service/plugins/plugin_host.dart';
 import 'package:anx_reader/service/tts/tts_handler.dart';
 import 'package:anx_reader/service/tts/media_diagnostics.dart';
 import 'package:anx_reader/utils/get_path/macos_migration.dart';
+import 'package:anx_reader/utils/import_book.dart';
 import 'package:anx_reader/utils/color_scheme.dart';
 import 'package:anx_reader/utils/error/common.dart';
 import 'package:anx_reader/utils/get_path/get_base_path.dart';
@@ -126,8 +131,9 @@ Future<void> main(List<String> arguments) async {
       'PP-OCRv4 / RapidOCR models': 'LICENSES/PaddleOCR-Apache-2.0.txt',
       'Atkinson Hyperlegible Next': 'LICENSES/AtkinsonHyperlegibleNext-OFL.txt',
     }.entries) {
-      yield LicenseEntryWithLineBreaks(
-          [entry.key], await rootBundle.loadString(entry.value));
+      yield LicenseEntryWithLineBreaks([
+        entry.key,
+      ], await rootBundle.loadString(entry.value));
     }
   });
   await Prefs().initPrefs();
@@ -138,10 +144,13 @@ Future<void> main(List<String> arguments) async {
       var committed = false;
       try {
         // Do not silently fall back to another library if the old drive is absent.
-        final source = prefs.getString('customStoragePath') ??
+        final source =
+            prefs.getString('customStoragePath') ??
             await getDefaultStoragePath();
         final copied = await performStorageMigration(
-            sourcePath: source, destinationPath: target);
+          sourcePath: source,
+          destinationPath: target,
+        );
         committed =
             copied && await prefs.setString('customStoragePath', target);
       } catch (_) {
@@ -185,10 +194,14 @@ Future<void> main(List<String> arguments) async {
   if (AnxPlatform.isAndroid) {
     // Storage bootstrap does not use providers; _startConfiguredApp adds scope.
     // ignore: missing_provider_scope
-    runApp(AndroidStorageStartup(start: () async {
-      await prepareAndroidStorage();
-      await _startConfiguredApp();
-    }));
+    runApp(
+      AndroidStorageStartup(
+        start: () async {
+          await prepareAndroidStorage();
+          await _startConfiguredApp();
+        },
+      ),
+    );
     return;
   }
   await _startConfiguredApp();
@@ -234,12 +247,9 @@ Future<void> _startConfiguredApp() async {
     animationType: SmartAnimationType.centerFade_otherSlide,
   );
 
-  runApp(
-    const ProviderScope(
-      child: MyApp(),
-    ),
-  );
+  runApp(const ProviderScope(child: MyApp()));
   if (!_needsMigration) unawaited(DBHelper().repairLegacyBookCovers());
+  if (!_needsMigration) unawaited(CoverOptimizer.runOnce());
 }
 
 class MyApp extends ConsumerStatefulWidget {
@@ -268,8 +278,9 @@ class _MyAppState extends ConsumerState<MyApp>
                 AppLifecycleState.resumed)) {
       final now = DateTime.now();
       _themeScheduleTimer = Timer(
-          Duration(milliseconds: 60000 - now.second * 1000 - now.millisecond),
-          _checkThemeSchedule);
+        Duration(milliseconds: 60000 - now.second * 1000 - now.millisecond),
+        _checkThemeSchedule,
+      );
     }
     if (changed) {
       prefs.refreshLinkedReadTheme();
@@ -290,8 +301,16 @@ class _MyAppState extends ConsumerState<MyApp>
       unawaited(reader.syncAndRefreshReading());
       return;
     }
-    unawaited(ref.read(syncProvider.notifier).syncData(SyncDirection.both, null,
-        trigger: SyncTrigger.auto, immediate: true));
+    unawaited(
+      ref
+          .read(syncProvider.notifier)
+          .syncData(
+            SyncDirection.both,
+            null,
+            trigger: SyncTrigger.auto,
+            immediate: true,
+          ),
+    );
   }
 
   @override
@@ -301,16 +320,20 @@ class _MyAppState extends ConsumerState<MyApp>
     windowManager.addListener(this);
     Prefs().addListener(_checkThemeSchedule);
     _checkThemeSchedule();
-    _syncConnectivity =
-        Connectivity().onConnectivityChanged.listen((connections) {
-      if (connections.any((value) => value != ConnectivityResult.none) &&
-          (!Prefs().onlySyncWhenWifi ||
-              connections.contains(ConnectivityResult.wifi))) {
-        _resumeAutomaticSync();
-      }
-    }, onError: (Object error) {
-      AnxLog.warning('Sync connectivity monitor failed: ${error.runtimeType}');
-    });
+    _syncConnectivity = Connectivity().onConnectivityChanged.listen(
+      (connections) {
+        if (connections.any((value) => value != ConnectivityResult.none) &&
+            (!Prefs().onlySyncWhenWifi ||
+                connections.contains(ConnectivityResult.wifi))) {
+          _resumeAutomaticSync();
+        }
+      },
+      onError: (Object error) {
+        AnxLog.warning(
+          'Sync connectivity monitor failed: ${error.runtimeType}',
+        );
+      },
+    );
   }
 
   @override
@@ -329,12 +352,13 @@ class _MyAppState extends ConsumerState<MyApp>
     _closingWindow = true;
     try {
       CrashJournal.readerStage('closing_jobs');
-      await bookKnowledgeIndexQueue
-          .pauseAndCancelAll()
-          .timeout(const Duration(seconds: 20));
+      await bookKnowledgeIndexQueue.pauseAndCancelAll().timeout(
+        const Duration(seconds: 20),
+      );
       CrashJournal.readerStage('closing_readers');
-      await AnxHeadlessWebView.disposeAll()
-          .timeout(const Duration(seconds: 20));
+      await AnxHeadlessWebView.disposeAll().timeout(
+        const Duration(seconds: 20),
+      );
     } catch (error, stack) {
       // Do not tear down the engine underneath a still-running native job.
       CrashJournal.readerStage('close_failed');
@@ -395,11 +419,12 @@ class _MyAppState extends ConsumerState<MyApp>
     final isMaximized = await windowManager.isMaximized();
 
     Prefs().windowInfo = WindowInfo(
-        x: windowOffset.dx,
-        y: windowOffset.dy,
-        width: windowSize.width,
-        height: windowSize.height,
-        isMaximized: isMaximized);
+      x: windowOffset.dx,
+      y: windowOffset.dy,
+      width: windowSize.width,
+      height: windowSize.height,
+      isMaximized: isMaximized,
+    );
     AnxLog.info('onWindowClose: Offset: $windowOffset, Size: $windowSize');
   }
 
@@ -431,18 +456,15 @@ class _MyAppState extends ConsumerState<MyApp>
   @override
   Widget build(BuildContext context) {
     return provider.MultiProvider(
-      providers: [
-        provider.ChangeNotifierProvider(
-          create: (_) => Prefs(),
-        ),
-      ],
+      providers: [provider.ChangeNotifierProvider(create: (_) => Prefs())],
       child: provider.Consumer<Prefs>(
         builder: (context, prefsNotifier, child) {
           final motion = !prefsNotifier.eInkMotionDisabled;
           SmartDialog.config.custom = SmartConfigCustom(
-              maskColor: Colors.black.withAlpha(35),
-              useAnimation: motion,
-              animationType: SmartAnimationType.centerFade_otherSlide);
+            maskColor: Colors.black.withAlpha(35),
+            useAnimation: motion,
+            animationType: SmartAnimationType.centerFade_otherSlide,
+          );
           SmartDialog.config.attach = SmartConfigAttach(useAnimation: motion);
           SmartDialog.config.loading = SmartConfigLoading(useAnimation: motion);
           SmartDialog.config.toast = SmartConfigToast(useAnimation: motion);
@@ -462,16 +484,17 @@ class _MyAppState extends ConsumerState<MyApp>
             navigatorObservers: [
               readerRouteObserver,
               FlutterSmartDialog.observer,
-              heroineController
+              heroineController,
             ],
             builder: (context, child) => AppRouteSurface(
-                child: EinkMotionScope(
-              enabled: prefsNotifier.eInkMotionDisabled,
-              child: FlutterSmartDialog.init(
-                toastBuilder: (message) => Builder(
-                    builder: (context) => AnxToast.content(context, message)),
-                loadingBuilder: prefsNotifier.eInkMotionDisabled
-                    ? (message) => Material(
+              child: EinkMotionScope(
+                enabled: prefsNotifier.eInkMotionDisabled,
+                child: FlutterSmartDialog.init(
+                  toastBuilder: (message) => Builder(
+                    builder: (context) => AnxToast.content(context, message),
+                  ),
+                  loadingBuilder: prefsNotifier.eInkMotionDisabled
+                      ? (message) => Material(
                           color: Colors.white,
                           shape: RoundedRectangleBorder(
                             side: const BorderSide(color: Colors.black),
@@ -482,21 +505,25 @@ class _MyAppState extends ConsumerState<MyApp>
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.hourglass_empty,
-                                    color: Colors.black),
+                                const Icon(
+                                  Icons.hourglass_empty,
+                                  color: Colors.black,
+                                ),
                                 if (message.isNotEmpty) ...[
                                   const SizedBox(height: 12),
-                                  Text(message,
-                                      style:
-                                          const TextStyle(color: Colors.black)),
+                                  Text(
+                                    message,
+                                    style: const TextStyle(color: Colors.black),
+                                  ),
                                 ],
                               ],
                             ),
                           ),
                         )
-                    : null,
-              )(context, child),
-            )),
+                      : null,
+                )(context, child),
+              ),
+            ),
             navigatorKey: navigatorKey,
             locale: prefsNotifier.locale,
             localeListResolutionCallback: _resolveLocale,
@@ -508,7 +535,8 @@ class _MyAppState extends ConsumerState<MyApp>
             darkTheme: colorSchema(prefsNotifier, context, Brightness.dark),
             home: _needsMigration
                 ? _MigrationWrapper(
-                    migrationCheckResult: _migrationCheckResult!)
+                    migrationCheckResult: _migrationCheckResult!,
+                  )
                 : const HomePage(),
           );
         },
@@ -548,7 +576,8 @@ class _MigrationWrapperState extends State<_MigrationWrapper> {
       await PluginHost.instance.initialize();
     } catch (error) {
       AnxLog.severe(
-          'Plugin host initialization failed after migration: $error');
+        'Plugin host initialization failed after migration: $error',
+      );
     }
     if (mounted) {
       setState(() {

@@ -37,7 +37,12 @@ class BookCover extends StatelessWidget {
       child = Container(
         decoration: BoxDecoration(
           image: DecorationImage(
-            image: FileImage(file),
+            // Decode at thumbnail size instead of the full cover resolution.
+            image: ResizeImage(
+              FileImage(file),
+              width: 400,
+              allowUpscaling: false,
+            ),
             fit: BoxFit.cover,
           ),
         ),
@@ -124,10 +129,7 @@ class BookCover extends StatelessWidget {
 
     final RoundedSuperellipseBorder borderShape = RoundedSuperellipseBorder(
       borderRadius: borderRadius,
-      side: const BorderSide(
-        width: 0.3,
-        color: Colors.grey,
-      ),
+      side: const BorderSide(width: 0.3, color: Colors.grey),
     );
 
     return SizedBox(
@@ -135,13 +137,8 @@ class BookCover extends StatelessWidget {
       width: width,
       child: DecoratedBox(
         position: DecorationPosition.foreground,
-        decoration: ShapeDecoration(
-          shape: borderShape,
-        ),
-        child: ClipRSuperellipse(
-          borderRadius: borderRadius,
-          child: child,
-        ),
+        decoration: ShapeDecoration(shape: borderShape),
+        child: ClipRSuperellipse(borderRadius: borderRadius, child: child),
       ),
     );
   }

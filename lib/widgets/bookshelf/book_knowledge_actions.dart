@@ -1,7 +1,8 @@
 import 'package:anx_reader/utils/app_motion.dart';
+
 import 'dart:io';
+
 import 'package:anx_reader/service/linked_books.dart';
-import 'package:anx_reader/utils/get_path/get_base_path.dart';
 import 'package:anx_reader/l10n/modu_strings.dart';
 
 import 'package:anx_reader/dao/book.dart';
@@ -36,9 +37,7 @@ Future<void> queueBookForVectorization(
     return;
   }
   final added = (queue ?? bookKnowledgeIndexQueue).enqueue(book);
-  notify(
-    added ? '《${book.title}》已加入向量化队列' : '《${book.title}》已在向量化队列中',
-  );
+  notify(added ? '《${book.title}》已加入向量化队列' : '《${book.title}》已在向量化队列中');
 }
 
 Future<void> queueBooksForVectorization(
@@ -88,14 +87,16 @@ Future<void> queueBooksForVectorization(
     final queued = added > 0
         ? '已将 $added 本书加入向量化队列。'
         : localBooks.isNotEmpty
-            ? '本地书籍已在队列中或队列暂不可用。'
-            : '';
-    notify([
-      queued,
-      if (missing > 0) '已跳过 $missing 本尚未下载或本地文件不可用的书籍，请先下载后再向量化。',
-      if (unavailable > 0)
-        '已跳过 $unavailable 本向量模型不可用的书籍。${modelErrors.join('；')}',
-    ].where((text) => text.isNotEmpty).join());
+        ? '本地书籍已在队列中或队列暂不可用。'
+        : '';
+    notify(
+      [
+        queued,
+        if (missing > 0) '已跳过 $missing 本尚未下载或本地文件不可用的书籍，请先下载后再向量化。',
+        if (unavailable > 0)
+          '已跳过 $unavailable 本向量模型不可用的书籍。${modelErrors.join('；')}',
+      ].where((text) => text.isNotEmpty).join(),
+    );
     return;
   }
   if (added == 0) {
@@ -105,6 +106,8 @@ Future<void> queueBooksForVectorization(
   }
 }
 
+enum DeleteBookMode { referenceOnly, deleteSource }
+
 Future<bool> confirmAndDeleteBooksFromBookshelf(
   BuildContext context,
   WidgetRef ref,
@@ -113,79 +116,174 @@ Future<bool> confirmAndDeleteBooksFromBookshelf(
   final list = books.toList(growable: false);
   if (list.isEmpty) return false;
 
-  final confirmed = await showDialog<bool>(
-        animationStyle: AppMotion.style,
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(list.length == 1
-              ? ModuStrings.text(dialogContext, '删除书籍', 'Delete book')
-              : ModuStrings.format(
-                  dialogContext, '删除 {count} 本书', 'Delete {count} books',
-                  values: {'count': list.length})),
-          content: Text(
-            list.any((book) => LinkedBooks.isLinked(book.filePath))
-                ? ModuStrings.text(
+  final hasLinked = list.any((book) => LinkedBooks.isLinked(book.filePath));
+  var mode = DeleteBookMode.referenceOnly;
+
+  final confirmed = await showDialog<DeleteBookMode>(
+    animationStyle: AppMotion.style,
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (dialogContext, setState) {
+        final title = list.length == 1
+            ? ModuStrings.text(dialogContext, '删除书籍', 'Delete book')
+            : ModuStrings.format(
+                dialogContext,
+                '删除 {count} 本书',
+                'Delete {count} books',
+                values: {'count': list.length},
+              );
+        final target = list.length == 1
+            ? '《${list.first.title}》'
+            : '所选的 ${list.length} 本书';
+        return AlertDialog(
+          title: Text(title),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  ModuStrings.format(
                     dialogContext,
-                    '确定删除所选书籍吗？将删除书架记录、封面、本地索引及默读内的副本。原位添加的外部原书会保留。',
-                    'Delete the selected books, covers, local indexes and copies stored in Modu? External originals added in place are kept.')
-                : (list.length == 1
-                    ? ModuStrings.format(
+                    '选择如何处理{target}的源文件。封面、阅读记录和本地索引都会被删除。',
+                    'Choose what happens to the source file of {target}. Covers, reading history and local indexes are always removed.',
+                    values: {'target': target},
+                  ),
+                ),
+                const SizedBox(height: 8),
+                RadioListTile<DeleteBookMode>(
+                  value: DeleteBookMode.referenceOnly,
+                  groupValue: mode,
+                  onChanged: (value) {
+                    if (value != null) setState(() => mode = value);
+                  },
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    ModuStrings.text(
+                      dialogContext,
+                      '仅移出书架（保留源文件）',
+                      'Remove from shelf only (keep source)',
+                    ),
+                  ),
+                  subtitle: Text(
+                    ModuStrings.text(
+                      dialogContext,
+                      '原位添加的书会保留设备上的原书；普通导入的私有副本会继续占用应用存储。',
+                      'In-place originals stay on the device; normal imports keep their private copy and its storage usage.',
+                    ),
+                  ),
+                ),
+                RadioListTile<DeleteBookMode>(
+                  value: DeleteBookMode.deleteSource,
+                  groupValue: mode,
+                  onChanged: (value) {
+                    if (value != null) setState(() => mode = value);
+                  },
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    ModuStrings.text(
+                      dialogContext,
+                      '移出书架并删除源文件',
+                      'Remove and delete source file',
+                    ),
+                  ),
+                  subtitle: Text(
+                    ModuStrings.text(
+                      dialogContext,
+                      '永久删除设备上的源文件：原位添加的是原书，普通导入的是私有副本。此操作不可恢复。',
+                      'Permanently delete the source on this device: the original for in-place books, the private copy for normal imports. This cannot be undone.',
+                    ),
+                  ),
+                ),
+                if (hasLinked)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      ModuStrings.text(
                         dialogContext,
-                        '确定删除《{title}》吗？书籍文件及本地向量索引也会被删除。',
-                        'Delete “{title}”? The book file and local vector index will also be deleted.',
-                        values: {
-                            'title': list.first.title
-                          })
-                    : ModuStrings.format(
-                        dialogContext,
-                        '确定删除所选 {count} 本书吗？书籍文件及本地向量索引也会被删除。',
-                        'Delete the {count} selected books? Their files and local vector indexes will also be deleted.',
-                        values: {'count': list.length})),
+                        '所选书籍包含“原位添加”的书，选择删除源文件会删除你设备上的原书。',
+                        'The selection contains in-place books; deleting source files removes your original books from this device.',
+                      ),
+                      style: TextStyle(
+                        color: Theme.of(dialogContext).colorScheme.error,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: Text(ModuStrings.text(dialogContext, '取消', 'Cancel')),
             ),
             TextButton(
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: Text(ModuStrings.text(dialogContext, '删除', 'Delete')),
+              style: TextButton.styleFrom(
+                foregroundColor: mode == DeleteBookMode.deleteSource
+                    ? Colors.red
+                    : null,
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(mode),
+              child: Text(
+                mode == DeleteBookMode.deleteSource
+                    ? ModuStrings.text(
+                        dialogContext,
+                        '删除源文件并移出',
+                        'Delete file & remove',
+                      )
+                    : ModuStrings.text(
+                        dialogContext,
+                        '移出书架',
+                        'Remove from shelf',
+                      ),
+              ),
             ),
           ],
-        ),
-      ) ??
-      false;
-  if (!confirmed) return false;
+        );
+      },
+    ),
+  );
+  if (confirmed == null) return false;
 
-  await deleteBooksFromBookshelf(ref, list);
+  await deleteBooksFromBookshelf(ref, list, mode: confirmed);
   return true;
 }
 
-/// Performs the existing soft-delete/file-delete behavior and also removes
-/// queue work plus the persisted knowledge index.
+/// Removes shelf records, queue work and the persisted knowledge index.
+/// Only [DeleteBookMode.deleteSource] touches the book file itself, so removing
+/// a reference never destroys an in-place original by accident.
 Future<void> deleteBooksFromBookshelf(
   WidgetRef ref,
-  Iterable<Book> books,
-) async {
+  Iterable<Book> books, {
+  DeleteBookMode mode = DeleteBookMode.referenceOnly,
+}) async {
   final list = books.toList(growable: false);
+  var failedDeletes = 0;
   for (final book in list) {
     await bookKnowledgeIndexQueue.cancelAndRemove(book.id);
     await bookDao.setDeleted(book.id, true);
-    // Delete only owned storage, never the security-scoped original.
-    await _deleteIfPresent(File(getBasePath(book.filePath)));
+    if (mode == DeleteBookMode.deleteSource) {
+      // Linked books resolve this to the external original; normal imports to
+      // their private copy, so both choices stay explicit.
+      if (!await _deleteIfPresent(File(book.fileFullPath))) failedDeletes++;
+    }
     await LinkedBooks.forget(book.filePath);
-    await _deleteIfPresent(File(book.coverFullPath));
+    if (!await _deleteIfPresent(File(book.coverFullPath))) failedDeletes++;
     await BookKnowledgeIndexService().deleteIndex(book);
   }
   await ref.read(bookListProvider.notifier).refresh();
-  AnxToast.show(list.length == 1 ? '书籍已删除' : '已删除 ${list.length} 本书');
+  final base = mode == DeleteBookMode.deleteSource
+      ? (list.length == 1 ? '书籍及源文件已删除' : '已删除 ${list.length} 本书及其源文件')
+      : (list.length == 1 ? '已移出书架，源文件保留' : '已移出 ${list.length} 本书，源文件保留');
+  AnxToast.show(failedDeletes > 0 ? '$base；$failedDeletes 个文件删除失败' : base);
 }
 
-Future<void> _deleteIfPresent(File file) async {
+Future<bool> _deleteIfPresent(File file) async {
   try {
     if (await file.exists()) await file.delete();
+    return true;
   } on Object catch (error, stackTrace) {
     AnxLog.severe('Failed to delete ${file.path}: $error\n$stackTrace');
+    return false;
   }
 }

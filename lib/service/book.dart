@@ -1,8 +1,10 @@
 import 'package:anx_reader/service/book_import_source.dart';
 import 'package:anx_reader/utils/get_path/get_temp_dir.dart';
 import 'package:anx_reader/utils/app_motion.dart';
+
 import 'dart:io';
 import 'dart:async';
+
 import 'package:anx_reader/service/linked_books.dart';
 import 'package:anx_reader/l10n/modu_strings.dart';
 import 'package:anx_reader/widgets/page_router/reading_route.dart';
@@ -49,7 +51,9 @@ import 'book_player/book_player_server.dart';
 export 'package:anx_reader/service/book_formats.dart' show allowBookExtensions;
 
 Future<void> importBooksQuietly(
-    List<BookImportEntry> entries, WidgetRef ref) async {
+  List<BookImportEntry> entries,
+  WidgetRef ref,
+) async {
   if (entries.isEmpty) return;
   // Capture notifiers before awaiting: the user may leave the drop target page.
   final shelf = ref.read(bookListProvider.notifier);
@@ -66,7 +70,8 @@ Future<void> importBooksQuietly(
     },
     importFile: (file) => importBook(file, ref, onImported: () {}),
     onError: (entry, error, stack) => AnxLog.severe(
-        'Automatic book import failed: ${entry.label}: $error\n$stack'),
+      'Automatic book import failed: ${entry.label}: $error\n$stack',
+    ),
   );
   if (imported > 0) {
     await shelf.refresh();
@@ -76,17 +81,22 @@ Future<void> importBooksQuietly(
 
 /// import book list and **delete file**
 Future<void> importBookList(
-    List<File> fileList, BuildContext context, WidgetRef ref) async {
+  List<File> fileList,
+  BuildContext context,
+  WidgetRef ref,
+) async {
   AnxLog.info('importBook fileList: ${fileList.toString()}');
 
   List<File> supportedFiles = fileList.where((file) {
-    return allowBookExtensions
-        .contains(file.path.split('.').last.toLowerCase());
+    return allowBookExtensions.contains(
+      file.path.split('.').last.toLowerCase(),
+    );
   }).toList();
 
   List<File> unsupportedFiles = fileList.where((file) {
-    return !allowBookExtensions
-        .contains(file.path.split('.').last.toLowerCase());
+    return !allowBookExtensions.contains(
+      file.path.split('.').last.toLowerCase(),
+    );
   }).toList();
 
   await _checkDuplicatesAndShowDialog(
@@ -99,39 +109,44 @@ Future<void> importBookList(
 }
 
 Future<void> _checkDuplicatesAndShowDialog(
-    List<File> supportedFiles,
-    List<File> unsupportedFiles,
-    List<File> fileList,
-    BuildContext context,
-    WidgetRef ref) async {
+  List<File> supportedFiles,
+  List<File> unsupportedFiles,
+  List<File> fileList,
+  BuildContext context,
+  WidgetRef ref,
+) async {
   showDialog(
     animationStyle: AppMotion.style,
     context: context,
     barrierDismissible: false,
     builder: (context) => PopScope(
-        canPop: false,
-        child: AlertDialog(
-          title: Text(L10n.of(context).md5Calculating),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const EinkStaticIndicator(child: CircularProgressIndicator()),
-              const SizedBox(height: 16),
-              Text(L10n.of(context).md5Calculating),
-            ],
-          ),
-        )),
+      canPop: false,
+      child: AlertDialog(
+        title: Text(L10n.of(context).md5Calculating),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const EinkStaticIndicator(child: CircularProgressIndicator()),
+            const SizedBox(height: 16),
+            Text(L10n.of(context).md5Calculating),
+          ],
+        ),
+      ),
+    ),
   );
 
   List<File> duplicateFiles = [];
   List<File> uniqueFiles = [];
   Map<String, Book> duplicateInfo = {};
+  final md5ByPath = <String, String?>{};
   try {
     final checkResults = await MD5Service.checkImportFiles(
-        supportedFiles.map((file) => file.path).toList());
+      supportedFiles.map((file) => file.path).toList(),
+    );
     for (int i = 0; i < supportedFiles.length; i++) {
       final file = supportedFiles[i];
       final result = checkResults[i];
+      md5ByPath[file.path] = result.md5;
       if (result.isDuplicate && result.duplicateBook != null) {
         duplicateFiles.add(file);
         duplicateInfo[file.path] = result.duplicateBook!;
@@ -147,17 +162,26 @@ Future<void> _checkDuplicatesAndShowDialog(
   }
   if (!context.mounted) return;
   Navigator.of(context, rootNavigator: true).pop();
-  await _showImportDialog(uniqueFiles, duplicateFiles, duplicateInfo,
-      unsupportedFiles, fileList, ref);
+  await _showImportDialog(
+    uniqueFiles,
+    duplicateFiles,
+    duplicateInfo,
+    md5ByPath,
+    unsupportedFiles,
+    fileList,
+    ref,
+  );
 }
 
 Future<void> _showImportDialog(
-    List<File> uniqueFiles,
-    List<File> duplicateFiles,
-    Map<String, Book> duplicateInfo,
-    List<File> unsupportedFiles,
-    List<File> fileList,
-    WidgetRef ref) async {
+  List<File> uniqueFiles,
+  List<File> duplicateFiles,
+  Map<String, Book> duplicateInfo,
+  Map<String, String?> md5ByPath,
+  List<File> unsupportedFiles,
+  List<File> fileList,
+  WidgetRef ref,
+) async {
   // delete unsupported files
   for (var file in unsupportedFiles) {
     if (file.existsSync()) file.deleteSync();
@@ -177,11 +201,7 @@ Future<void> _showImportDialog(
       children: [
         Row(
           children: [
-            SizedBox(
-              width: 24,
-              height: 24,
-              child: icon,
-            ),
+            SizedBox(width: 24, height: 24, child: icon),
             Expanded(
               child: Text(
                 path.basename(filePath),
@@ -220,10 +240,7 @@ Future<void> _showImportDialog(
             padding: const EdgeInsets.only(left: 28, top: 2),
             child: Text(
               L10n.of(context).duplicateOf(duplicateTitle),
-              style: const TextStyle(
-                fontSize: 12,
-                color: Colors.grey,
-              ),
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ),
         if (errorMessage != null)
@@ -231,10 +248,7 @@ Future<void> _showImportDialog(
             padding: const EdgeInsets.only(left: 28, top: 2),
             child: Text(
               'Error: ${errorMessage.length > 50 ? "${errorMessage.substring(0, 50)}..." : errorMessage}',
-              style: const TextStyle(
-                fontSize: 12,
-                color: Colors.red,
-              ),
+              style: const TextStyle(fontSize: 12, color: Colors.red),
             ),
           ),
       ],
@@ -245,18 +259,19 @@ Future<void> _showImportDialog(
   bool skipDuplicates = true;
 
   await showDialog(
-      animationStyle: AppMotion.style,
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        String currentHandlingFile = '';
-        bool running = false;
-        final succeeded = <String>{};
-        List<String> errorFiles = [];
-        bool finished = false;
-        Map<String, String> errorMessages = {};
+    animationStyle: AppMotion.style,
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext context) {
+      String currentHandlingFile = '';
+      bool running = false;
+      final succeeded = <String>{};
+      List<String> errorFiles = [];
+      bool finished = false;
+      Map<String, String> errorMessages = {};
 
-        return StatefulBuilder(builder: (context, setState) {
+      return StatefulBuilder(
+        builder: (context, setState) {
           Future<void> startImport() async {
             if (finished) {
               Navigator.of(context).pop('dialog');
@@ -275,7 +290,7 @@ Future<void> _showImportDialog(
                 currentHandlingFile = file.path;
               });
               try {
-                await importBook(file, ref);
+                await importBook(file, ref, knownMd5: md5ByPath[file.path]);
                 succeeded.add(file.path);
               } catch (e, stackTrace) {
                 AnxLog.severe('Failed to import ${file.path}: $e');
@@ -305,29 +320,89 @@ Future<void> _showImportDialog(
               running = false;
             });
             if (succeeded.isNotEmpty) {
-              ref.read(syncProvider.notifier).syncData(
-                  SyncDirection.upload, ref,
-                  trigger: SyncTrigger.auto);
+              ref
+                  .read(syncProvider.notifier)
+                  .syncData(
+                    SyncDirection.upload,
+                    ref,
+                    trigger: SyncTrigger.auto,
+                  );
             }
           }
 
           return PopScope(
-              canPop: !running,
-              child: AlertDialog(
-                title: Text(
-                    L10n.of(context).importNBooksSelected(fileList.length)),
-                contentPadding: const EdgeInsets.all(16),
-                content: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(L10n.of(context)
-                          .importSupportTypes(allowBookExtensions.join(' / '))),
+            canPop: !running,
+            child: AlertDialog(
+              title: Text(
+                L10n.of(context).importNBooksSelected(fileList.length),
+              ),
+              contentPadding: const EdgeInsets.all(16),
+              content: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      L10n.of(context)
+                          .importSupportTypes(allowBookExtensions.join(' / ')),
+                    ),
 
+                    const SizedBox(height: 10),
+
+                    // show unique files
+                    for (var file in uniqueFiles)
+                      file.path == currentHandlingFile
+                          ? bookItem(
+                              file.path,
+                              Container(
+                                padding: const EdgeInsets.all(3),
+                                width: 20,
+                                height: 20,
+                                child: const EinkStaticIndicator(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              ),
+                            )
+                          : bookItem(
+                              file.path,
+                              errorFiles.contains(file.path)
+                                  ? const Icon(Icons.error)
+                                  : Icon(
+                                      succeeded.contains(file.path)
+                                          ? Icons.done
+                                          : Icons.schedule,
+                                    ),
+                              errorMessage: errorFiles.contains(file.path)
+                                  ? errorMessages[file.path]
+                                  : null,
+                            ),
+
+                    // show unsupported files
+                    if (unsupportedFiles.isNotEmpty) ...[
+                      Divider(),
+                      SizedBox(height: 10),
+                      Text(
+                        L10n.of(context)
+                            .importNBooksNotSupport(unsupportedFiles.length),
+                      ),
+                    ],
+                    for (var file in unsupportedFiles)
+                      bookItem(file.path, const Icon(Icons.error)),
+
+                    // show duplicate files
+                    if (duplicateFiles.isNotEmpty) ...[
+                      Divider(),
                       const SizedBox(height: 10),
-
-                      // show unique files
-                      for (var file in uniqueFiles)
+                      Text(L10n.of(context).duplicateFile),
+                    ],
+                    for (var file in duplicateFiles)
+                      if (skipDuplicates)
+                        bookItem(
+                          file.path,
+                          const Icon(Icons.double_arrow_rounded),
+                          isDuplicate: true,
+                          duplicateTitle: duplicateInfo[file.path]?.title,
+                        )
+                      else
                         file.path == currentHandlingFile
                             ? bookItem(
                                 file.path,
@@ -336,149 +411,116 @@ Future<void> _showImportDialog(
                                   width: 20,
                                   height: 20,
                                   child: const EinkStaticIndicator(
-                                      child: CircularProgressIndicator()),
-                                ))
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                ),
+                                isDuplicate: true,
+                                duplicateTitle: duplicateInfo[file.path]?.title,
+                              )
                             : bookItem(
                                 file.path,
                                 errorFiles.contains(file.path)
                                     ? const Icon(Icons.error)
-                                    : Icon(succeeded.contains(file.path)
-                                        ? Icons.done
-                                        : Icons.schedule),
+                                    : Icon(
+                                        succeeded.contains(file.path)
+                                            ? Icons.done
+                                            : Icons.schedule,
+                                      ),
+                                isDuplicate: true,
+                                duplicateTitle: duplicateInfo[file.path]?.title,
                                 errorMessage: errorFiles.contains(file.path)
                                     ? errorMessages[file.path]
                                     : null,
                               ),
 
-                      // show unsupported files
-                      if (unsupportedFiles.isNotEmpty) ...[
-                        Divider(),
-                        SizedBox(height: 10),
-                        Text(L10n.of(context)
-                            .importNBooksNotSupport(unsupportedFiles.length))
-                      ],
-                      for (var file in unsupportedFiles)
-                        bookItem(file.path, const Icon(Icons.error)),
-
-                      // show duplicate files
-                      if (duplicateFiles.isNotEmpty) ...[
-                        Divider(),
-                        const SizedBox(height: 10),
-                        Text(L10n.of(context).duplicateFile),
-                      ],
-                      for (var file in duplicateFiles)
-                        if (skipDuplicates)
-                          bookItem(
-                            file.path,
-                            const Icon(Icons.double_arrow_rounded),
-                            isDuplicate: true,
-                            duplicateTitle: duplicateInfo[file.path]?.title,
-                          )
-                        else
-                          file.path == currentHandlingFile
-                              ? bookItem(
-                                  file.path,
-                                  Container(
-                                    padding: const EdgeInsets.all(3),
-                                    width: 20,
-                                    height: 20,
-                                    child: const EinkStaticIndicator(
-                                        child: CircularProgressIndicator()),
-                                  ),
-                                  isDuplicate: true,
-                                  duplicateTitle:
-                                      duplicateInfo[file.path]?.title,
-                                )
-                              : bookItem(
-                                  file.path,
-                                  errorFiles.contains(file.path)
-                                      ? const Icon(Icons.error)
-                                      : Icon(succeeded.contains(file.path)
-                                          ? Icons.done
-                                          : Icons.schedule),
-                                  isDuplicate: true,
-                                  duplicateTitle:
-                                      duplicateInfo[file.path]?.title,
-                                  errorMessage: errorFiles.contains(file.path)
-                                      ? errorMessages[file.path]
-                                      : null,
-                                ),
-
-                      // select skip duplicates
-                      if (duplicateFiles.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Checkbox(
-                              value: skipDuplicates,
-                              onChanged: running || finished
-                                  ? null
-                                  : (value) {
-                                      setState(() {
-                                        skipDuplicates = value ?? true;
-                                      });
-                                    },
-                            ),
-                            Expanded(
-                              child: Text(L10n.of(context).skipDuplicateFiles),
-                            ),
-                          ],
-                        ),
-                      ],
+                    // select skip duplicates
+                    if (duplicateFiles.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Checkbox(
+                            value: skipDuplicates,
+                            onChanged: running || finished
+                                ? null
+                                : (value) {
+                                    setState(() {
+                                      skipDuplicates = value ?? true;
+                                    });
+                                  },
+                          ),
+                          Expanded(
+                            child: Text(L10n.of(context).skipDuplicateFiles),
+                          ),
+                        ],
+                      ),
                     ],
-                  ),
+                  ],
                 ),
-                actions: [
+              ),
+              actions: [
+                TextButton(
+                  onPressed: running
+                      ? null
+                      : () {
+                          Navigator.pop(context);
+                          for (var file in supportedFiles) {
+                            if (file.existsSync()) file.deleteSync();
+                          }
+                        },
+                  child: Text(L10n.of(context).commonCancel),
+                ),
+                if (finished ||
+                    uniqueFiles.isNotEmpty ||
+                    (duplicateFiles.isNotEmpty && !skipDuplicates))
                   TextButton(
                     onPressed: running
                         ? null
-                        : () {
-                            Navigator.pop(context);
-                            for (var file in supportedFiles) {
-                              if (file.existsSync()) file.deleteSync();
-                            }
+                        : () async {
+                            await startImport();
                           },
-                    child: Text(L10n.of(context).commonCancel),
+                    child: Text(
+                      finished
+                          ? L10n.of(context).commonOk
+                          : L10n.of(context).importImportNBooks(
+                              uniqueFiles.length +
+                                  (skipDuplicates ? 0 : duplicateFiles.length) -
+                                  errorFiles.length,
+                            ),
+                    ),
                   ),
-                  if (finished ||
-                      uniqueFiles.isNotEmpty ||
-                      (duplicateFiles.isNotEmpty && !skipDuplicates))
-                    TextButton(
-                        onPressed: running
-                            ? null
-                            : () async {
-                                await startImport();
-                              },
-                        child: Text(finished
-                            ? L10n.of(context).commonOk
-                            : L10n.of(context).importImportNBooks(uniqueFiles
-                                    .length +
-                                (skipDuplicates ? 0 : duplicateFiles.length) -
-                                errorFiles.length))),
-                ],
-              ));
-        });
-      });
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
 }
 
-Future<void> importBook(File file, WidgetRef ref,
-    {void Function()? onImported}) async {
+Future<void> importBook(
+  File file,
+  WidgetRef ref, {
+  String? knownMd5,
+  void Function()? onImported,
+}) async {
   if (await FileSystemEntity.type(file.path) != FileSystemEntityType.file) {
     throw FileSystemException('Book source is not a regular file', file.path);
   }
-  String? md5 = await MD5Service.calculateFileMd5(file.path);
+  String? md5 = knownMd5 ?? await MD5Service.calculateFileMd5(file.path);
   String? sourceMd5;
 
-  final extension =
-      path.extension(file.path).replaceFirst('.', '').toLowerCase();
+  final extension = path
+      .extension(file.path)
+      .replaceFirst('.', '')
+      .toLowerCase();
   if (extension == 'txt' ||
       extension == 'umd' ||
       isMarkdownExtension(extension)) {
     final tempFile = extension == 'umd'
         ? await convertFromUmd(file)
         : isMarkdownExtension(extension)
-            ? await convertFromMarkdown(file)
-            : await convertFromTxt(file);
+        ? await convertFromMarkdown(file)
+        : await convertFromTxt(file);
     sourceMd5 = md5;
     md5 = await MD5Service.calculateFileMd5(tempFile.path);
     if (md5 == null) {
@@ -488,12 +530,19 @@ Future<void> importBook(File file, WidgetRef ref,
     file = tempFile;
   }
 
-  await getBookMetadata(file,
-      md5: md5,
-      sourceMd5: sourceMd5,
-      sourceFormat: extension,
-      inspectDocumentOnImport:
-          {'epub', 'pdf', 'mobi', 'azw3', 'fb2'}.contains(extension));
+  await getBookMetadata(
+    file,
+    md5: md5,
+    sourceMd5: sourceMd5,
+    sourceFormat: extension,
+    inspectDocumentOnImport: {
+      'epub',
+      'pdf',
+      'mobi',
+      'azw3',
+      'fb2',
+    }.contains(extension),
+  );
   if (await file.exists()) await file.delete();
   if (onImported != null) {
     onImported();
@@ -517,10 +566,13 @@ Future<void> pushToReadingPage(
 
   if (!File(book.fileFullPath).existsSync()) {
     if (LinkedBooks.isLinked(book.filePath)) {
-      AnxToast.show(ModuStrings.text(
+      AnxToast.show(
+        ModuStrings.text(
           context,
           '原书不可访问。请通过“原位添加”重新选择原书，或使用普通导入。',
-          'Original unavailable. Add it in place again, or import it normally.'));
+          'Original unavailable. Add it in place again, or import it normally.',
+        ),
+      );
       return;
     }
     ref.read(syncProvider.notifier).downloadBook(book);
@@ -529,36 +581,34 @@ Future<void> pushToReadingPage(
 
   ref.read(aiChatProvider(AiChatScope.reader).notifier).clear();
   final initialThemes = await themeDao.selectThemes();
-  ref.read(currentReadingProvider.notifier).start(
-        CurrentReadingState(
-          book: book,
-          cfi: cfi,
-        ),
-      );
+  ref
+      .read(currentReadingProvider.notifier)
+      .start(CurrentReadingState(book: book, cfi: cfi));
 
   final currentReading = ref.read(currentReadingProvider.notifier);
   final chapterContentBridge = ref.read(chapterContentBridgeProvider.notifier);
   final tocSearch = ref.read(tocSearchProvider.notifier);
 
-  final closed = Navigator.push(
-    navigatorKey.currentContext!,
-    readingRoute<void>(
-      animate: Prefs().openBookAnimation,
-      builder: (c) => ReadingPage(
-        key: readingPageKey,
-        book: book,
-        cfi: cfi,
-        initialThemes: initialThemes,
-        heroTag: heroTag,
-      ),
-    ),
-  ).then((_) {
-    AnxLog.info('ReadingPage: poped: ${book.title}');
-    currentReading.finish();
-    chapterContentBridge.state = null;
-    tocSearch.clear();
-    AnxLog.info('Pop successfully ReadingPage: ${book.title}');
-  });
+  final closed =
+      Navigator.push(
+        navigatorKey.currentContext!,
+        readingRoute<void>(
+          animate: Prefs().openBookAnimation,
+          builder: (c) => ReadingPage(
+            key: readingPageKey,
+            book: book,
+            cfi: cfi,
+            initialThemes: initialThemes,
+            heroTag: heroTag,
+          ),
+        ),
+      ).then((_) {
+        AnxLog.info('ReadingPage: poped: ${book.title}');
+        currentReading.finish();
+        chapterContentBridge.state = null;
+        tocSearch.clear();
+        AnxLog.info('Pop successfully ReadingPage: ${book.title}');
+      });
   if (waitForClose) {
     await closed;
   } else {
@@ -609,25 +659,36 @@ Future<void> saveBook(
   // final coverPath = getBasePath(dbCoverPath);
 
   // Preserve the source until both file and database writes have succeeded.
-  if (linkedPath == null) await file.copy(filePath);
+  // Staged imports already own a disposable copy, so move it instead of
+  // copying large PDFs/EPUBs a second time across app-private storage.
+  if (linkedPath == null) {
+    final target = File(filePath);
+    await target.parent.create(recursive: true);
+    try {
+      await file.rename(filePath);
+    } on FileSystemException {
+      await file.copy(filePath);
+    }
+  }
   dbCoverPath = cover.isEmpty ? '' : await saveImageToLocal(cover, dbCoverPath);
   if (md5 != null) {
     provideBook ??= await bookDao.getBookByMd5(sourceMd5 ?? md5);
   }
 
   Book book = Book(
-      id: provideBook != null ? provideBook.id : -1,
-      title: provideBook?.title ?? effectiveTitle,
-      coverPath: dbCoverPath,
-      filePath: dbFilePath,
-      lastReadPosition: provideBook?.lastReadPosition ?? '',
-      readingPercentage: provideBook?.readingPercentage ?? 0,
-      author: provideBook?.author ?? author,
-      isDeleted: false,
-      rating: provideBook?.rating ?? 0.0,
-      md5: md5,
-      createTime: provideBook?.createTime ?? DateTime.now(),
-      updateTime: DateTime.now());
+    id: provideBook != null ? provideBook.id : -1,
+    title: provideBook?.title ?? effectiveTitle,
+    coverPath: dbCoverPath,
+    filePath: dbFilePath,
+    lastReadPosition: provideBook?.lastReadPosition ?? '',
+    readingPercentage: provideBook?.readingPercentage ?? 0,
+    author: provideBook?.author ?? author,
+    isDeleted: false,
+    rating: provideBook?.rating ?? 0.0,
+    md5: md5,
+    createTime: provideBook?.createTime ?? DateTime.now(),
+    updateTime: DateTime.now(),
+  );
 
   try {
     book.id = await bookDao.insertBook(book, sourceMd5: sourceMd5);
@@ -692,40 +753,55 @@ Future<void> getBookMetadata(
   // Attach the error listener before the native WebView starts calling back.
   final metadataFuture = result.future.timeout(const Duration(seconds: 45));
   unawaited(
-      metadataFuture.then<void>((_) {}, onError: (Object _, StackTrace __) {}));
+    metadataFuture.then<void>((_) {}, onError: (Object _, StackTrace __) {}),
+  );
   final webview = AnxHeadlessWebView(
     webViewEnvironment: webViewEnvironment,
     initialUrlRequest: URLRequest(
-        url: WebUri(generateUrl(
-      'http://127.0.0.1:${Server().port}/$serverFileName',
-      '',
-      importing: true,
-      inspectDocumentOnImport: inspectDocumentOnImport &&
-          !coverOnly &&
-          {'.pdf', '.epub', '.mobi', '.azw3', '.fb2'}
-              .contains(path.extension(file.path).toLowerCase()),
-    ))),
+      url: WebUri(
+        generateUrl(
+          'http://127.0.0.1:${Server().port}/$serverFileName',
+          '',
+          importing: true,
+          inspectDocumentOnImport:
+              inspectDocumentOnImport &&
+              !coverOnly &&
+              {
+                '.pdf',
+                '.epub',
+                '.mobi',
+                '.azw3',
+                '.fb2',
+              }.contains(path.extension(file.path).toLowerCase()),
+        ),
+      ),
+    ),
     onWebViewCreated: (controller) {
       controller.addJavaScriptHandler(
-          handlerName: 'onMetadata',
-          callback: (args) {
-            if (result.isCompleted) return;
-            try {
-              result.complete(Map<String, dynamic>.from(args.single as Map));
-            } catch (error) {
-              fail(error);
-            }
-          });
+        handlerName: 'onMetadata',
+        callback: (args) {
+          if (result.isCompleted) return;
+          try {
+            result.complete(Map<String, dynamic>.from(args.single as Map));
+          } catch (error) {
+            fail(error);
+          }
+        },
+      );
       controller.addJavaScriptHandler(
-          handlerName: 'onImportError',
-          callback: (args) {
-            final error = args.isEmpty ? null : args.first;
-            final password =
-                error is Map && error['name'] == 'PasswordException';
-            fail(FormatException(password
-                ? '此 PDF 需要密码，暂不支持加密 PDF。请先解密后导入。'
-                : '书籍解析失败：${error is Map ? error['message'] : error}'));
-          });
+        handlerName: 'onImportError',
+        callback: (args) {
+          final error = args.isEmpty ? null : args.first;
+          final password = error is Map && error['name'] == 'PasswordException';
+          fail(
+            FormatException(
+              password
+                  ? '此 PDF 需要密码，暂不支持加密 PDF。请先解密后导入。'
+                  : '书籍解析失败：${error is Map ? error['message'] : error}',
+            ),
+          );
+        },
+      );
     },
     onLoadError: (_, __, ___, message) => fail(StateError('导入页面加载失败：$message')),
     onLoadHttpError: (_, __, status, ___) =>
@@ -754,29 +830,32 @@ Future<void> getBookMetadata(
         throw const FormatException('书籍没有可恢复的封面');
       }
       final coverPath = await saveImageToLocal(
-          cover, 'cover/${book.id}-${DateTime.now().microsecondsSinceEpoch}');
+        cover,
+        'cover/${book.id}-${DateTime.now().microsecondsSinceEpoch}',
+      );
       await bookDao.updateBook(book.copyWith(coverPath: coverPath));
       return;
     }
     final rawAuthor = metadata['author'];
     final author = rawAuthor is List
         ? rawAuthor
-            .map((a) => a is Map ? a['name'] : a)
-            .whereType<Object>()
-            .join(', ')
+              .map((a) => a is Map ? a['name'] : a)
+              .whereType<Object>()
+              .join(', ')
         : rawAuthor?.toString() ?? 'Unknown';
     await saveBook(
-        file,
-        metadata['title']?.toString() ?? 'Unknown',
-        author,
-        metadata['description']?.toString() ?? '',
-        md5,
-        metadata['cover']?.toString() ?? '',
-        provideBook: book,
-        sourceMd5: sourceMd5,
-        sourceFormat: sourceFormat,
-        linkedPath: linkedPath,
-        documentReadingMode: metadata['documentReadingMode']);
+      file,
+      metadata['title']?.toString() ?? 'Unknown',
+      author,
+      metadata['description']?.toString() ?? '',
+      md5,
+      metadata['cover']?.toString() ?? '',
+      provideBook: book,
+      sourceMd5: sourceMd5,
+      sourceFormat: sourceFormat,
+      linkedPath: linkedPath,
+      documentReadingMode: metadata['documentReadingMode'],
+    );
     ref?.read(bookListProvider.notifier).refresh();
   } finally {
     if (!result.isCompleted) fail(StateError('导入已结束'));

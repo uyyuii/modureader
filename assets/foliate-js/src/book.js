@@ -1877,7 +1877,7 @@ const getMetadata = async (book, inspectDocument = false) => {
           fileReader.readAsDataURL(blob)
         })
       })(),
-      new Promise(resolve => { timer = setTimeout(() => resolve(null), 8000) }),
+      new Promise(resolve => { timer = setTimeout(() => resolve(null), 4000) }),
     ])
   } catch (error) {
     // Missing/broken cover does not make a readable book invalid.
