@@ -105,6 +105,23 @@ jobs:
           storeFile=release.jks
           EOF
 
+      - name: Use accessible Gradle mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+          HOST="mirrors.huaweicloud.com"
+          if ! curl -fsIL --retry 2 --connect-timeout 15 \
+            "https://$HOST/gradle/gradle-9.2.1-bin.zip" >/dev/null; then
+            HOST="mirrors.cloud.tencent.com"
+          fi
+          echo "Gradle distribution host: $HOST"
+          sed -i \
+            -e "s#mirrors.huaweicloud.com#$HOST#" \
+            -e "s#mirrors.cloud.tencent.com#$HOST#" \
+            -e "s#services.gradle.org#$HOST#" \
+            android/gradle/wrapper/gradle-wrapper.properties
+          grep '^distributionUrl=' android/gradle/wrapper/gradle-wrapper.properties
+
       - name: Build arm64 release APK
         run: |
           set -o pipefail
