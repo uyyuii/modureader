@@ -33,8 +33,9 @@ class LinkedBooks {
   }
 
   static Future<String> link(String selectionId) async {
-    final link = await channel
-        .invokeMapMethod<String, String>('link', {'id': selectionId});
+    final link = await channel.invokeMapMethod<String, String>('link', {
+      'id': selectionId,
+    });
     final key = link?['key'];
     final path = link?['path'];
     if (key == null ||
@@ -44,6 +45,24 @@ class LinkedBooks {
       throw const FileSystemException('Unable to retain book access');
     }
     _paths[key] = path;
+    return key;
+  }
+
+  /// Registers an absolute path that is already readable (directory scan or
+  /// WebDAV cache) without copying the file into the private library.
+  static Future<String> linkPath(String path) async {
+    final link = await channel.invokeMapMethod<String, String>('linkPath', {
+      'path': path,
+    });
+    final key = link?['key'];
+    final resolved = link?['path'];
+    if (key == null ||
+        !isLinked(key) ||
+        resolved == null ||
+        !File(resolved).isAbsolute) {
+      throw const FileSystemException('Unable to retain book access');
+    }
+    _paths[key] = resolved;
     return key;
   }
 

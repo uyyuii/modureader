@@ -16,8 +16,11 @@ class BookDao extends BaseDao {
   /// Create a folder and move its books atomically, or move into a live folder.
   /// Only membership changes: never write a stale Book snapshot over sync data.
   /// A groupId of zero moves the books back to the shelf root.
-  Future<int> moveBooksToFolder(Iterable<int> bookIds,
-      {int? groupId, String? newFolderName}) async {
+  Future<int> moveBooksToFolder(
+    Iterable<int> bookIds, {
+    int? groupId,
+    String? newFolderName,
+  }) async {
     final ids = bookIds.toSet();
     final name = newFolderName?.trim();
     if (ids.isEmpty || ids.any((id) => id <= 0)) {
@@ -31,10 +34,12 @@ class BookDao extends BaseDao {
     return transaction((txn) async {
       // Per-ID checks avoid SQLite parameter limits on large selections.
       for (final id in ids) {
-        final rows = await txn.query(table,
-            columns: ['id'],
-            where: 'id = ? AND is_deleted = 0',
-            whereArgs: [id]);
+        final rows = await txn.query(
+          table,
+          columns: ['id'],
+          where: 'id = ? AND is_deleted = 0',
+          whereArgs: [id],
+        );
         if (rows.isEmpty) throw StateError('Selected book no longer exists');
       }
       final now = DateTime.now().toIso8601String();
@@ -42,10 +47,12 @@ class BookDao extends BaseDao {
       if (groupId == 0) {
         target = 0;
       } else if (groupId != null) {
-        final groups = await txn.query('tb_groups',
-            columns: ['id'],
-            where: 'id = ? AND is_deleted = 0',
-            whereArgs: [groupId]);
+        final groups = await txn.query(
+          'tb_groups',
+          columns: ['id'],
+          where: 'id = ? AND is_deleted = 0',
+          whereArgs: [groupId],
+        );
         if (groups.isEmpty) throw StateError('Folder no longer exists');
         target = groupId;
       } else {
@@ -58,9 +65,12 @@ class BookDao extends BaseDao {
         });
       }
       for (final id in ids) {
-        await txn.update(table, {'group_id': target, 'update_time': now},
-            where: 'id = ? AND (group_id IS NULL OR group_id != ?)',
-            whereArgs: [id, target]);
+        await txn.update(
+          table,
+          {'group_id': target, 'update_time': now},
+          where: 'id = ? AND (group_id IS NULL OR group_id != ?)',
+          whereArgs: [id, target],
+        );
       }
       return target;
     });
@@ -77,8 +87,10 @@ class BookDao extends BaseDao {
 
   Future<int> insertBook(Book book, {String? sourceMd5}) {
     if (book.id != -1 || sourceMd5 == null) return save(book);
-    return transaction((txn) =>
-        ConvertedBookChecksum.insert(txn, book.toMap(), sourceMd5: sourceMd5));
+    return transaction(
+      (txn) =>
+          ConvertedBookChecksum.insert(txn, book.toMap(), sourceMd5: sourceMd5),
+    );
   }
 
   Future<void> updateBook(Book book) async {
@@ -88,8 +100,11 @@ class BookDao extends BaseDao {
       ..remove('reading_percentage')
       ..remove('is_deleted');
     await transaction((txn) async {
-      final previous =
-          await txn.query(table, where: 'id = ?', whereArgs: [book.id]);
+      final previous = await txn.query(
+        table,
+        where: 'id = ?',
+        whereArgs: [book.id],
+      );
       if (previous.length == 1) {
         await ReplacedBookFiles.record(txn, previous.single, book.filePath);
       }
@@ -99,14 +114,22 @@ class BookDao extends BaseDao {
 
   /// Explicit external metadata adoption must never rewrite ratings, reviews,
   /// rounds or progress from an older detail-page snapshot.
-  Future<void> updateExternalMetadata(int bookId,
-      {String? coverPath, String? description}) async {
+  Future<void> updateExternalMetadata(
+    int bookId, {
+    String? coverPath,
+    String? description,
+  }) async {
     if (coverPath == null && description == null) return;
-    final changed = await update(table, {
-      if (coverPath != null) 'cover_path': coverPath,
-      if (description != null) 'description': description,
-      'update_time': DateTime.now().toIso8601String(),
-    }, where: 'id = ? AND is_deleted = 0', whereArgs: [bookId]);
+    final changed = await update(
+      table,
+      {
+        if (coverPath != null) 'cover_path': coverPath,
+        if (description != null) 'description': description,
+        'update_time': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ? AND is_deleted = 0',
+      whereArgs: [bookId],
+    );
     if (changed != 1) throw StateError('Book no longer available');
   }
 
@@ -114,11 +137,16 @@ class BookDao extends BaseDao {
       transaction((txn) => _readPosition(txn, bookId));
 
   Future<ReadingPositionSnapshot> _readPosition(
-      Transaction txn, int bookId) async {
-    final rows = await txn.rawQuery('''SELECT b.last_read_position,
+    Transaction txn,
+    int bookId,
+  ) async {
+    final rows = await txn.rawQuery(
+      '''SELECT b.last_read_position,
       b.reading_percentage, b.is_deleted, r.clock, r.revision, r.narration
       FROM tb_books b JOIN $syncRecordsTable r
-      ON r.kind='position' AND r.local_id=b.id WHERE b.id=?''', [bookId]);
+      ON r.kind='position' AND r.local_id=b.id WHERE b.id=?''',
+      [bookId],
+    );
     if (rows.length != 1) throw StateError('Reading position unavailable');
     final row = rows.single;
     return ReadingPositionSnapshot(
@@ -133,32 +161,42 @@ class BookDao extends BaseDao {
   /// Only explicit reading actions call this. A stale page cannot overwrite a
   /// position imported by sync, even if the old page is saved later in time.
   Future<ReadingPositionSnapshot?> updateReadingPosition(
-      int bookId, String position, double percentage,
-      {required String expectedRevision, NarrationPosition? narration}) async {
+    int bookId,
+    String position,
+    double percentage, {
+    required String expectedRevision,
+    NarrationPosition? narration,
+  }) async {
     return transaction((txn) async {
       final current = await _readPosition(txn, bookId);
       if (current.deleted || current.revision != expectedRevision) return null;
       final normalized = normalizeReadingProgress(percentage);
       if (narration != null) NarrationPosition.decode(narration.encode());
-      final narrationChanged = narration != null &&
+      final narrationChanged =
+          narration != null &&
           narration.encode() != current.narration?.encode();
       if (current.position == position && current.percentage == normalized) {
         if (!narrationChanged) return current;
         await RowSyncStore.touchPosition(txn, bookId);
       }
       await txn.update(
-          table,
-          {
-            'last_read_position': position,
-            'reading_percentage': normalized,
-            'update_time': DateTime.now().toIso8601String(),
-          },
-          where: 'id = ?',
-          whereArgs: [bookId]);
+        table,
+        {
+          'last_read_position': position,
+          'reading_percentage': normalized,
+          'update_time': DateTime.now().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [bookId],
+      );
       // The position trigger already records the actual change, exactly once.
       if (narrationChanged) {
-        await txn.update(syncRecordsTable, {'narration': narration.encode()},
-            where: "kind='position' AND local_id=?", whereArgs: [bookId]);
+        await txn.update(
+          syncRecordsTable,
+          {'narration': narration.encode()},
+          where: "kind='position' AND local_id=?",
+          whereArgs: [bookId],
+        );
       }
       return _readPosition(txn, bookId);
     });
@@ -183,13 +221,14 @@ class BookDao extends BaseDao {
 
   Future<void> setDeleted(int bookId, bool deleted) async {
     await update(
-        table,
-        {
-          'is_deleted': deleted ? 1 : 0,
-          'update_time': DateTime.now().toIso8601String()
-        },
-        where: 'id = ?',
-        whereArgs: [bookId]);
+      table,
+      {
+        'is_deleted': deleted ? 1 : 0,
+        'update_time': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [bookId],
+    );
   }
 
   Future<List<Book>> selectBooks({bool includeDeleted = true}) {
@@ -222,6 +261,15 @@ class BookDao extends BaseDao {
     return book;
   }
 
+  Future<Book?> selectBookByFilePath(String filePath) {
+    return querySingle(
+      table,
+      mapper: Book.fromDb,
+      where: 'file_path = ? AND is_deleted = 0',
+      whereArgs: [filePath],
+    );
+  }
+
   Future<List<String>> getCurrentBooks() async {
     final books = await selectNotDeleteBooks();
     return books.map((book) => book.filePath).toList(growable: false);
@@ -239,12 +287,14 @@ class BookDao extends BaseDao {
   Future<Book?> getBookByMd5(String md5) {
     // Converted books retain their source identity while file_md5 checks the
     // actual EPUB. The same import must still find the original shelf entry.
-    return rawQuerySingle('''SELECT b.* FROM tb_books b
+    return rawQuerySingle(
+      '''SELECT b.* FROM tb_books b
       LEFT JOIN $syncRecordsTable r ON r.kind='book' AND r.local_id=b.id
       WHERE lower(b.file_md5)=? OR r.sync_id=?
       ORDER BY b.is_deleted ASC, b.id ASC LIMIT 1''',
-        arguments: [md5.toLowerCase(), 'md5:${md5.toLowerCase()}'],
-        mapper: Book.fromDb);
+      arguments: [md5.toLowerCase(), 'md5:${md5.toLowerCase()}'],
+      mapper: Book.fromDb,
+    );
   }
 
   Future<List<Book>> searchBooks(String keyword) async {
@@ -262,8 +312,10 @@ class BookDao extends BaseDao {
     );
   }
 
-  Future<List<Book>> selectBooksByIds(List<int> ids,
-      {bool includeDeleted = false}) async {
+  Future<List<Book>> selectBooksByIds(
+    List<int> ids, {
+    bool includeDeleted = false,
+  }) async {
     if (ids.isEmpty) {
       return const [];
     }
@@ -279,10 +331,7 @@ class BookDao extends BaseDao {
   Future<void> updateBookMd5(int bookId, String md5) {
     return update(
       table,
-      {
-        'file_md5': md5,
-        'update_time': DateTime.now().toIso8601String(),
-      },
+      {'file_md5': md5, 'update_time': DateTime.now().toIso8601String()},
       where: 'id = ?',
       whereArgs: [bookId],
     );
@@ -303,10 +352,7 @@ class BookDao extends BaseDao {
   Future<void> updateCurrentRound(int bookId, int round) {
     return update(
       table,
-      {
-        'current_round': round,
-        'update_time': DateTime.now().toIso8601String(),
-      },
+      {'current_round': round, 'update_time': DateTime.now().toIso8601String()},
       where: 'id = ?',
       whereArgs: [bookId],
     );
@@ -317,10 +363,7 @@ class BookDao extends BaseDao {
   Future<void> updateReview(int bookId, String? review) {
     return update(
       table,
-      {
-        'review': review ?? '',
-        'update_time': DateTime.now().toIso8601String(),
-      },
+      {'review': review ?? '', 'update_time': DateTime.now().toIso8601String()},
       where: 'id = ?',
       whereArgs: [bookId],
     );

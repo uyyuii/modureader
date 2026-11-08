@@ -57,6 +57,7 @@ class BookFolderPlugin : FlutterPlugin, ActivityAware, PluginRegistry.ActivityRe
         when (call.method) {
             "pick" -> pick(call, result)
             "link" -> link(call, result)
+            "linkPath" -> linkPath(call, result)
             "restoreLinks" -> restoreLinks(result)
             "forgetLink" -> forgetLink(call, result)
             "hasAllFilesAccess" -> result.success(hasAllFilesAccess())
@@ -150,6 +151,47 @@ class BookFolderPlugin : FlutterPlugin, ActivityAware, PluginRegistry.ActivityRe
             } catch (_: Exception) {
                 main.post {
                     result.error("LINK_FAILED", "Unable to retain original book access", null)
+                }
+            }
+        }
+    }
+
+    /**
+     * Registers an already-readable absolute path (directory-library scan or
+     * WebDAV cache) and returns the same kind of key used by in-place links.
+     */
+    private fun linkPath(call: MethodCall, result: MethodChannel.Result) {
+        val raw = call.argument<String>("path")
+        if (raw.isNullOrBlank()) {
+            result.error("LINK_FAILED", "Missing path", null)
+            return
+        }
+        worker.execute {
+            try {
+                val file = File(raw)
+                if (!file.isFile || !file.canRead()) {
+                    throw IllegalArgumentException("Not readable")
+                }
+                val canonical = file.canonicalPath
+                var existing: String? = null
+                for ((key, value) in prefs.all) {
+                    if (key.startsWith(LINK_PREFIX) && value == canonical) {
+                        existing = key
+                        break
+                    }
+                }
+                val finalKey = existing ?: run {
+                    val extension = file.name.substringAfterLast('.', "").lowercase()
+                    val key = "$LINK_PREFIX${UUID.randomUUID()}.$extension"
+                    prefs.edit().putString(key, canonical).apply()
+                    key
+                }
+                main.post {
+                    result.success(mapOf("key" to finalKey, "path" to canonical))
+                }
+            } catch (_: Exception) {
+                main.post {
+                    result.error("LINK_FAILED", "Unable to retain file access", null)
                 }
             }
         }

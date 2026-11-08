@@ -67,13 +67,15 @@ class _HomeNavigationShellState extends State<HomeNavigationShell> {
 
   MediaQueryData _stableHomeInsets(MediaQueryData media, bool isCurrent) {
     final previous = _homeViewport;
-    final resized = previous == null ||
+    final resized =
+        previous == null ||
         previous.width != media.size.width ||
         (previous.width > previous.height) !=
             (media.size.width > media.size.height);
     final saved = _homeViewPadding;
     final actual = media.viewPadding;
-    final barsRestored = saved == null ||
+    final barsRestored =
+        saved == null ||
         ((saved.top == 0 || actual.top > 0) &&
             (saved.bottom == 0 || actual.bottom > 0) &&
             (saved.left == 0 || actual.left > 0) &&
@@ -112,11 +114,11 @@ class _HomeNavigationShellState extends State<HomeNavigationShell> {
       if (prefs.bottomNavigatorShowRemote)
         HomeNavigationDestination(
           HomeNavigationDestination.remoteLibrary,
-          Icons.cloud_download_outlined,
+          Icons.folder_open_outlined,
           switch (localeKey) {
-            'zh-CN' => '远程',
-            'zh-TW' || 'zh-LZH' => '遠程',
-            _ => ModuStrings.text(context, '远程书库', 'Remote library'),
+            'zh-CN' => '文件库',
+            'zh-TW' || 'zh-LZH' => '檔案庫',
+            _ => ModuStrings.text(context, '文件库', 'Library'),
           },
         ),
       if (prefs.bottomNavigatorShowStatistics)
@@ -150,7 +152,9 @@ class _HomeNavigationShellState extends State<HomeNavigationShell> {
   }
 
   void _selectDestination(
-      HomeNavigationDestination destination, bool fromRail) {
+    HomeNavigationDestination destination,
+    bool fromRail,
+  ) {
     if (destination.identifier == HomeNavigationDestination.ai && !fromRail) {
       showCupertinoSheet(
         context: context,
@@ -169,8 +173,10 @@ class _HomeNavigationShellState extends State<HomeNavigationShell> {
   @override
   Widget build(BuildContext context) {
     return MediaQuery(
-      data: _stableHomeInsets(MediaQuery.of(context),
-          ModalRoute.isCurrentOf(context) ?? true),
+      data: _stableHomeInsets(
+        MediaQuery.of(context),
+        ModalRoute.isCurrentOf(context) ?? true,
+      ),
       child: _buildNavigation(),
     );
   }
@@ -180,8 +186,9 @@ class _HomeNavigationShellState extends State<HomeNavigationShell> {
       animation: Prefs(),
       builder: (context, _) {
         final destinations = _destinations(context);
-        var selectedIndex = destinations
-            .indexWhere((destination) => destination.identifier == _currentTab);
+        var selectedIndex = destinations.indexWhere(
+          (destination) => destination.identifier == _currentTab,
+        );
         if (selectedIndex == -1) {
           // The selected destination was just hidden by a settings switch (or
           // an imported configuration). Fall back to the stable first entry.
@@ -239,7 +246,8 @@ class _HomeNavigationShellState extends State<HomeNavigationShell> {
 
             final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
             // A compact bar never keeps a sheet-only AI destination selected.
-            final displayIndex = destinations[selectedIndex].identifier ==
+            final displayIndex =
+                destinations[selectedIndex].identifier ==
                     HomeNavigationDestination.ai
                 ? 0
                 : selectedIndex;
@@ -278,15 +286,11 @@ class _HomeNavigationShellState extends State<HomeNavigationShell> {
                       child: Container(
                         height: HomeNavigationMetrics.barHeightFor(context),
                         decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainer
+                          color: Theme.of(context).colorScheme.surfaceContainer
                               .withAlpha(Prefs().eInkMode ? 255 : 100),
                           borderRadius: BorderRadius.circular(32),
                           border: Border.all(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .outline
+                            color: Theme.of(context).colorScheme.outline
                                 .withAlpha(Prefs().eInkMode ? 255 : 90),
                             width: 0.5,
                           ),
