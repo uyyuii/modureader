@@ -31,12 +31,11 @@ class LinkedBookRegistry {
   static const int _maxQueuedCovers = 30;
   static const int _maxCoverAttempts = 3;
   static bool _coverWorkerRunning = false;
-  static bool _needsWarmup = true;
   static Timer? _notifyTimer;
 
   /// Queue a cover for a linked book that has no usable cover yet. Called both
   /// from registration and from the cover widget's build, so it must be cheap,
-  /// idempotent, and must never open two WebViews for the same row.
+  /// idempotent, and must never run two extractions for the same row.
   static void requestCover(Book book) {
     if (book.id <= 0 || !LinkedBooks.isLinked(book.filePath)) return;
     if (book.coverPath.isNotEmpty && File(book.coverFullPath).existsSync()) {
@@ -59,19 +58,15 @@ class LinkedBookRegistry {
     });
   }
 
-  /// Strictly serial: cover extraction runs in a headless WebView, which can
-  /// only be driven from the main isolate and is expensive for large PDFs.
-  /// The image encoding itself already runs in a compute isolate.
+  /// Strictly serial: extracting a cover opens and inflates a book file, and
+  /// the native PDF first-page renderer allocates a full-size bitmap. Running
+  /// one at a time keeps a bulk directory scan from exhausting memory. No
+  /// WebView or loopback server is involved any more, so there is no warmup
+  /// delay before the first book.
   static Future<void> _drainCovers() async {
     if (_coverWorkerRunning) return;
     _coverWorkerRunning = true;
     try {
-      if (_needsWarmup) {
-        _needsWarmup = false;
-        // The loopback book server starts just after the first runApp. Cover
-        // extraction needs its port and the WebView environment to be ready.
-        await Future<void>.delayed(const Duration(seconds: 2));
-      }
       while (_coverQueue.isNotEmpty) {
         final book = _coverQueue.removeFirst();
         try {

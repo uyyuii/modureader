@@ -46,6 +46,10 @@ class _DocumentLayoutEditorState extends State<DocumentLayoutEditor> {
       _failed = false,
       _saving = false,
       _saveFailed = false;
+  // Editing aids only: mirror a manually moved edge onto the opposite parity
+  // group as the user drags. The resulting crop values are what get saved, so
+  // these switches are deliberately session-local (no model/config changes).
+  bool _linkHorizontal = false, _linkVertical = false;
   DocumentLayoutScope _scope = DocumentLayoutScope.current;
   int _previewPage = 0, _generation = 0;
   double _aspect = 1;
@@ -154,11 +158,26 @@ class _DocumentLayoutEditorState extends State<DocumentLayoutEditor> {
     }
   }
 
-  void _change(DocumentPageLayout layout) {
+  void _change(
+    DocumentPageLayout layout, {
+    Map<DocumentLayoutScope, DocumentPageLayout>? linked,
+  }) {
     layout.validate();
+    if (linked != null) {
+      for (final other in linked.values) {
+        other.validate();
+      }
+    }
     setState(() {
       _draft[_scope] = layout;
       _dirty.add(_scope);
+      if (linked != null) {
+        // Write mirrored drafts directly. Routing them through _move/_change
+        // again would recurse and mirror the values straight back.
+        _draft.addAll(linked);
+        // In paired mode _save() only commits dirty odd/even scopes.
+        _dirty.addAll(linked.keys);
+      }
       _saveFailed = false;
     });
   }
@@ -289,7 +308,10 @@ class _DocumentLayoutEditorState extends State<DocumentLayoutEditor> {
               ? (r.bottom + dy).clamp(r.top + minH, 1.0)
               : r.bottom);
     }
-    _change(_layout.copyWith(crop: rect, autoCrop: false));
+    _change(
+      _layout.copyWith(crop: rect, autoCrop: false),
+      linked: _symmetryLinked(rect, corner),
+    );
     setState(() => _cropNotice = null);
   }
 
@@ -298,64 +320,58 @@ class _DocumentLayoutEditorState extends State<DocumentLayoutEditor> {
     if (refresh && _layout.autoCrop) _autoCrop();
   }
 
-  /// Equalize the two margins of the current crop frame. Taking the smaller
-  /// margin keeps the rect valid: m <= (left + right) / 2 < 0.5.
-  DocumentPageLayout _symmetricCrop(DocumentPageLayout layout,
-      {required bool horizontal}) {
-    final r = layout.crop;
-    if (horizontal) {
-      final left = r.left, right = 1 - r.right;
-      final m = left < right ? left : right;
-      return layout.copyWith(
-          crop: Rect.fromLTRB(m, r.top, 1 - m, r.bottom), autoCrop: false);
+  /// Mirror the edges the user just moved onto the opposite parity group.
+  ///
+  /// A symmetrically printed scanned book has its white margin on the left of
+  /// odd pages and on the right of even pages. So when the user drags, say,
+  /// the odd page's left edge, the even page's right edge must follow by the
+  /// same amount. `crop` is a normalized Rect whose right margin is
+  /// `1 - crop.right`, so mirroring an edge uses `1 - <edge>`, not the raw
+  /// coordinate. The transform is an involution, hence odd -> even and
+  /// even -> odd share the very same formulas.
+  Map<DocumentLayoutScope, DocumentPageLayout>? _symmetryLinked(
+      Rect after, String corner) {
+    if (!_paired || (!_linkHorizontal && !_linkVertical)) return null;
+    if (_scope != DocumentLayoutScope.odd &&
+        _scope != DocumentLayoutScope.even) {
+      return null;
     }
-    final top = r.top, bottom = 1 - r.bottom;
-    final m = top < bottom ? top : bottom;
-    return layout.copyWith(
-        crop: Rect.fromLTRB(r.left, m, r.right, 1 - m), autoCrop: false);
-  }
+    final other = _scope == DocumentLayoutScope.odd
+        ? DocumentLayoutScope.even
+        : DocumentLayoutScope.odd;
+    final o = _draft[other]!.crop;
+    var left = o.left, top = o.top, right = o.right, bottom = o.bottom;
 
-  /// Mirror a crop onto the opposite parity. After mirroring, the even page's
-  /// left margin equals the odd page's right margin (and vice versa), which is
-  /// what a scanned spread needs for symmetric inner/outer margins.
-  DocumentPageLayout _mirrorCrop(DocumentPageLayout layout,
-      {required bool horizontal}) {
-    final r = layout.crop;
-    return layout.copyWith(
-        crop: horizontal
-            ? Rect.fromLTRB(1 - r.right, r.top, 1 - r.left, r.bottom)
-            : Rect.fromLTRB(r.left, 1 - r.bottom, r.right, 1 - r.top),
-        autoCrop: false);
-  }
+    // Corners are encoded as t/b + l/r, or 'move' for the whole frame.
+    final movedLeft = corner == 'move' || corner.endsWith('l');
+    final movedRight = corner == 'move' || corner.endsWith('r');
+    final movedTop = corner == 'move' || corner.startsWith('t');
+    final movedBottom = corner == 'move' || corner.startsWith('b');
 
-  void _applySymmetry({required bool horizontal}) {
-    if (_saving || _busy || _failed || _detecting) return;
-    if (_paired) {
-      if (_scope != DocumentLayoutScope.odd &&
-          _scope != DocumentLayoutScope.even) {
-        return;
-      }
-      final other = _scope == DocumentLayoutScope.odd
-          ? DocumentLayoutScope.even
-          : DocumentLayoutScope.odd;
-      final mirrored = _mirrorCrop(_layout, horizontal: horizontal);
-      mirrored.validate();
-      setState(() {
-        _draft[other] = mirrored;
-        _dirty.add(other);
-        _saveFailed = false;
-        _cropNotice = null;
-      });
-    } else {
-      final symmetric = _symmetricCrop(_layout, horizontal: horizontal);
-      symmetric.validate();
-      setState(() {
-        _draft[_scope] = symmetric;
-        _dirty.add(_scope);
-        _saveFailed = false;
-        _cropNotice = null;
-      });
+    if (_linkHorizontal) {
+      if (movedLeft) right = 1 - after.left;
+      if (movedRight) left = 1 - after.right;
     }
+    if (_linkVertical) {
+      if (movedTop) bottom = 1 - after.top;
+      if (movedBottom) top = 1 - after.bottom;
+    }
+    // The other group may start from a very different frame, so keep the
+    // mirrored result a valid rect (validate() rejects non-positive sizes).
+    const minSize = .03;
+    left = left.clamp(0.0, 1.0 - minSize).toDouble();
+    right = right.clamp(left + minSize, 1.0).toDouble();
+    top = top.clamp(0.0, 1.0 - minSize).toDouble();
+    bottom = bottom.clamp(top + minSize, 1.0).toDouble();
+
+    return {
+      other: _draft[other]!.copyWith(
+        crop: Rect.fromLTRB(left, top, right, bottom),
+        // Per-page auto detection would ignore the mirrored crop at render
+        // time, so a manual override turns it off on the other group too.
+        autoCrop: false,
+      ),
+    };
   }
 
   Widget _controls() => AppScrollbar(
@@ -486,38 +502,46 @@ class _DocumentLayoutEditorState extends State<DocumentLayoutEditor> {
                             label: Text(_detecting
                                 ? tr('识别边界中…', 'Detecting borders…')
                                 : tr('自动裁边', 'Auto crop'))),
-                        Wrap(
-                            key: const ValueKey('crop-symmetry'),
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              ActionChip(
-                                  key: const ValueKey(
-                                      'crop-symmetry-horizontal'),
-                                  label:
-                                      Text(tr('左右对称', 'Horizontal symmetry')),
-                                  onPressed:
-                                      _saving || _busy || _failed || _detecting
-                                          ? null
-                                          : () => _applySymmetry(
-                                              horizontal: true)),
-                              ActionChip(
-                                  key: const ValueKey('crop-symmetry-vertical'),
-                                  label:
-                                      Text(tr('上下对称', 'Vertical symmetry')),
-                                  onPressed:
-                                      _saving || _busy || _failed || _detecting
-                                          ? null
-                                          : () => _applySymmetry(
-                                              horizontal: false)),
-                            ]),
-                        Text(
-                            _paired
-                                ? tr('奇偶页模式：以当前组为基准，把左右／上下裁边镜像到另一组。',
-                                    'Odd/even mode: mirror the current group onto the other one.')
-                                : tr('常规模式：让当前裁边框的左右／上下留白相等。',
-                                    'General mode: equalize the current crop margins.'),
-                            style: Theme.of(context).textTheme.bodySmall),
+                        if (_paired)
+                          Wrap(
+                              key: const ValueKey('crop-symmetry'),
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                FilterChip(
+                                    key: const ValueKey(
+                                        'crop-symmetry-horizontal'),
+                                    label: Text(tr('左右奇偶对称',
+                                        'Odd/even left-right symmetry')),
+                                    selected: _linkHorizontal,
+                                    onSelected: _saving ||
+                                            _busy ||
+                                            _failed ||
+                                            _detecting ||
+                                            widget.total <= 1
+                                        ? null
+                                        : (value) => setState(
+                                            () => _linkHorizontal = value)),
+                                FilterChip(
+                                    key: const ValueKey(
+                                        'crop-symmetry-vertical'),
+                                    label: Text(tr('上下奇偶对称',
+                                        'Odd/even top-bottom symmetry')),
+                                    selected: _linkVertical,
+                                    onSelected: _saving ||
+                                            _busy ||
+                                            _failed ||
+                                            _detecting ||
+                                            widget.total <= 1
+                                        ? null
+                                        : (value) => setState(
+                                            () => _linkVertical = value)),
+                              ]),
+                        if (_paired)
+                          Text(
+                              tr('勾选后在奇数页或偶数页拖动裁边框，另一组的镜像边会实时跟随（左边↔右边、上边↔下边）。',
+                                  'When checked, dragging an edge on either parity mirrors that edge on the other parity in real time (left↔right, top↔bottom).'),
+                              style: Theme.of(context).textTheme.bodySmall),
                         const SizedBox(height: 4),
                         Text(
                             '${tr('裁边留白（原页宽高百分比）', 'Crop margin (% of page dimensions)')} ${_autoMargin.round()}%'),

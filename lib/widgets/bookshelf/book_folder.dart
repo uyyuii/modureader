@@ -363,13 +363,29 @@ class _BookFolderState extends ConsumerState<BookFolder> {
               ),
               SizedBox(
                 height: 50,
-                child: Text(
-                  groupName,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      groupName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    // Keep this in sync with the list-mode subtitle below:
+                    // the group list is exactly what opening the folder shows.
+                    Text(
+                      ModuStrings.format(
+                          context, '{count} 本书', '{count} books',
+                          values: {'count': widget.books.length}),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ),
               ),
             ],

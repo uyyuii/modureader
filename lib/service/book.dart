@@ -37,6 +37,7 @@ import 'package:anx_reader/utils/webView/anx_headless_webview.dart';
 import 'package:anx_reader/utils/get_path/get_base_path.dart';
 import 'package:anx_reader/page/reading_page.dart';
 import 'package:anx_reader/utils/import_book.dart';
+import 'package:anx_reader/utils/lightweight_cover_extractor.dart';
 import 'package:anx_reader/utils/log/common.dart';
 import 'package:anx_reader/utils/toast/common.dart';
 import 'package:anx_reader/utils/webView/gererate_url.dart';
@@ -621,9 +622,25 @@ void updateBookRating(Book book, double rating) {
   bookDao.updateBook(book);
 }
 
+/// Re-extract only the cover of an existing book.
+///
+/// This used to call `getBookMetadata(coverOnly: true)`, which spun up a
+/// headless WebView that downloads the entire book into a browser Blob. On
+/// Android, Chromium spills large Blobs into
+/// `app_webview/default/blob_storage/<uuid>`, so bulk cover repair (directory
+/// libraries, startup migration) left hundreds of megabytes behind. The
+/// lightweight extractor reads a single EPUB zip entry or renders one PDF
+/// page natively, and never opens a WebView. Normal imports still use
+/// [getBookMetadata] because they need full title/author/description data.
 Future<void> resetBookCover(Book book) async {
-  File file = File(book.fileFullPath);
-  await getBookMetadata(file, book: book, md5: book.md5, coverOnly: true);
+  final coverPath = await LightweightCoverExtractor.extract(
+    fileFullPath: book.fileFullPath,
+    bookId: book.id,
+  );
+  if (coverPath == null || coverPath.isEmpty) {
+    throw const FormatException('书籍没有可恢复的封面');
+  }
+  await bookDao.updateBook(book.copyWith(coverPath: coverPath));
 }
 
 Future<void> saveBook(

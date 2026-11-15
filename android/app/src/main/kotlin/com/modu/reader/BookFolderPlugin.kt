@@ -5,11 +5,15 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
@@ -20,6 +24,7 @@ import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.PluginRegistry
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -66,6 +71,7 @@ class BookFolderPlugin : FlutterPlugin, ActivityAware, PluginRegistry.ActivityRe
                 result.success(null)
             }
             "sdkInt" -> result.success(Build.VERSION.SDK_INT)
+            "renderPdfCover" -> renderPdfCover(call, result)
             "copy" -> copy(call, result)
             "release" -> worker.execute {
                 entries.clear()
@@ -129,6 +135,78 @@ class BookFolderPlugin : FlutterPlugin, ActivityAware, PluginRegistry.ActivityRe
                 session?.deleteRecursively()
                 main.post { result.error("READ_FAILED", "Unable to copy selected books", null) }
             }
+        }
+    }
+
+    /**
+     * Render page 1 of a PDF with the system PdfRenderer and return PNG bytes.
+     *
+     * Cover extraction used to open a headless WebView whose bootstrap
+     * downloads the *whole book* into a browser Blob. Chromium spills large
+     * Blobs into `app_webview/default/blob_storage/<uuid>`, so generating
+     * covers for a large directory library left hundreds of megabytes behind.
+     * Rendering one page natively keeps books out of the WebView entirely.
+     */
+    private fun renderPdfCover(call: MethodCall, result: MethodChannel.Result) {
+        val sourcePath = call.argument<String>("path") ?: ""
+        if (sourcePath.isEmpty() || Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            result.success(null)
+            return
+        }
+        val maxWidth = (call.argument<Number>("maxWidth")?.toInt() ?: 600)
+            .coerceIn(200, 1600)
+        worker.execute {
+            var fd: ParcelFileDescriptor? = null
+            var renderer: PdfRenderer? = null
+            var payload: ByteArray? = null
+            try {
+                val file = File(sourcePath)
+                if (file.isFile && file.canRead()) {
+                    val descriptor =
+                        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                    fd = descriptor
+                    renderer = PdfRenderer(descriptor)
+                    if (renderer.pageCount > 0) {
+                        val page = renderer.openPage(0)
+                        try {
+                            val scale = maxWidth.toFloat() / page.width.coerceAtLeast(1)
+                            val height = (page.height * scale).toInt().coerceIn(1, 4096)
+                            val bitmap = Bitmap.createBitmap(
+                                maxWidth, height, Bitmap.Config.ARGB_8888
+                            )
+                            try {
+                                // PdfRenderer leaves untouched pixels transparent;
+                                // a book cover should have an opaque white page.
+                                bitmap.eraseColor(Color.WHITE)
+                                page.render(
+                                    bitmap, null, null,
+                                    PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY
+                                )
+                                val out = ByteArrayOutputStream()
+                                if (bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) {
+                                    payload = out.toByteArray()
+                                }
+                            } finally {
+                                bitmap.recycle()
+                            }
+                        } finally {
+                            page.close()
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                payload = null
+            } finally {
+                try {
+                    renderer?.close()
+                } catch (_: Exception) {
+                }
+                try {
+                    fd?.close()
+                } catch (_: Exception) {
+                }
+            }
+            main.post { result.success(payload) }
         }
     }
 

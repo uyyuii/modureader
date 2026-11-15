@@ -16,13 +16,16 @@ import 'package:anx_reader/models/book.dart';
 import 'package:anx_reader/models/tag.dart';
 import 'package:anx_reader/providers/book_list.dart';
 import 'package:anx_reader/providers/book_filters.dart';
+import 'package:anx_reader/providers/last_read_book_provider.dart';
 import 'package:anx_reader/providers/tags.dart';
+import 'package:anx_reader/service/book.dart';
 import 'package:anx_reader/service/knowledge/book_knowledge_index_queue.dart';
 import 'package:anx_reader/service/knowledge/book_knowledge_index_service.dart';
 import 'package:anx_reader/page/home_page/local_library_page.dart';
 import 'package:anx_reader/page/search/search_page.dart';
 import 'package:anx_reader/utils/color/hash_color.dart';
 import 'package:anx_reader/utils/log/common.dart';
+import 'package:anx_reader/utils/toast/common.dart';
 import 'package:anx_reader/widgets/bookshelf/book_import_picker.dart';
 import 'package:anx_reader/widgets/bookshelf/book_folder.dart';
 import 'package:anx_reader/widgets/bookshelf/book_selection_actions.dart';
@@ -54,6 +57,8 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
   final TextEditingController _editTagController = TextEditingController();
   final Set<int> _selectedBookIds = <int>{};
   bool _selectionMode = false;
+  // Guard against double taps while the database reloads and the reader opens.
+  bool _openingLastRead = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -97,6 +102,33 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     super.dispose();
   }
 
+  /// Reopen the last book that was actually being read. The provider caches
+  /// its first result, so reload it first: the user may have read a different
+  /// book from the statistics dashboard or another tab since then.
+  Future<void> _openLastReadBook() async {
+    if (_openingLastRead) return;
+    _openingLastRead = true;
+    try {
+      await ref.read(lastReadBookProvider.notifier).refresh();
+      if (!mounted) return;
+      final book = ref.read(lastReadBookProvider).valueOrNull?.book;
+      if (book == null) {
+        AnxToast.show(ModuStrings.text(
+            context, '还没有可继续阅读的书籍', 'No book to continue reading yet'));
+        return;
+      }
+      // Same entry point as tapping a cover: resumes at lastReadPosition and
+      // keeps the linked-book / WebDAV availability checks intact.
+      await pushToReadingPage(ref, context, book);
+      if (!mounted) return;
+      // Progress and reading-time rows change while the reader was open.
+      await ref.read(bookListProvider.notifier).refresh();
+      await ref.read(lastReadBookProvider.notifier).refresh();
+    } finally {
+      _openingLastRead = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -104,6 +136,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     final selectedTags = ref.watch(tagSelectionProvider);
     final tagsAsync = ref.watch(tagListProvider);
     final booksAsync = ref.watch(bookListProvider);
+    final lastReadBook = ref.watch(lastReadBookProvider).valueOrNull?.book;
     final listMode = Prefs().bookshelfListMode;
     final visibleBooks = booksAsync.valueOrNull
             ?.expand((group) => group)
@@ -500,6 +533,23 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
             child: Stack(
               children: [
                 buildBookshelfBody,
+                // Compact "resume reading" button. It floats above the
+                // centered home navigation bar instead of overlapping it:
+                // the clearance is exactly the inset scroll views reserve.
+                if (!_selectionMode && !_dragging && visibleBooks.isNotEmpty)
+                  Positioned(
+                    right: 16,
+                    bottom: max(
+                      16.0,
+                      MediaQuery.paddingOf(context).bottom +
+                          HomeNavigationClearance.of(context) +
+                          8,
+                    ),
+                    child: _ContinueReadingButton(
+                      title: lastReadBook?.title,
+                      onPressed: _openLastReadBook,
+                    ),
+                  ),
                 if (_dragging)
                   Container(
                     color: Theme.of(context).colorScheme.surface.withAlpha(90),
@@ -777,6 +827,40 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
           appBar: appBar,
           body: body,
         ));
+  }
+}
+
+/// Small bottom-right shortcut that opens the most recently read book.
+/// A long press shows the book title through the built-in FAB tooltip.
+class _ContinueReadingButton extends StatelessWidget {
+  const _ContinueReadingButton({required this.title, required this.onPressed});
+
+  final String? title;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasTitle = title != null && title!.trim().isNotEmpty;
+    final tooltip = hasTitle
+        ? ModuStrings.format(context, '继续阅读：{title}',
+            'Continue reading: {title}',
+            values: {'title': title!})
+        : ModuStrings.text(context, '继续阅读最近读过的书',
+            'Resume the last book you read');
+    final eInk = Prefs().eInkMode;
+    return FloatingActionButton.small(
+      // Skip the FAB's own hero flight; the reader animates from the
+      // matching book cover on the shelf instead.
+      heroTag: null,
+      tooltip: tooltip,
+      elevation: eInk ? 0 : 3,
+      focusElevation: eInk ? 0 : 4,
+      hoverElevation: eInk ? 0 : 4,
+      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+      foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+      onPressed: onPressed,
+      child: const Icon(Icons.play_arrow_rounded, size: 24),
+    );
   }
 }
 
