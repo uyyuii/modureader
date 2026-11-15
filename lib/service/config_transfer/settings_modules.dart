@@ -47,7 +47,8 @@ notesViewSortField notesViewSortDirection notesExportSortField notesExportSortDi
 notesExportMergeChapters excerptShareTemplate excerptShareColorIndex excerptShareBgimgIndex''',
   'statistics': 'statisticsDashboardTiles historyOpenBookDirectly',
   'network': 'httpProxyEnabled httpProxyHost httpProxyPort httpProxyTestUrl',
-  'advanced': 'clearLogWhenStart enableJsForEpub',
+  'advanced':
+      'clearLogWhenStart enableJsForEpub autoCheckUpdateOnLaunch',
 };
 
 final _owners = <String, String>{

@@ -37,7 +37,7 @@ bottomNavigatorShowRemote bottomNavigatorShowStatistics bottomNavigatorShowAI sy
 syncPreviewBeforeSync
 isSystemTts showTextUnderIconButton notesExportMergeChapters verticalRedFrame enableJsForEpub themeAppliesToReader
 httpProxyEnabled customCSSEnabled allowMixWithOtherAudio tapOnlyPageTurn continuousScroll scrollAutoAlign longPressSelectParagraph adjustableReaderPopups aiReadingSkillsVisible aiSkillTemplateDraft ocrPrecacheEnabled
-hideLegacyImport recentReadFirstWhenFileNameSort'''
+hideLegacyImport recentReadFirstWhenFileNameSort autoCheckUpdateOnLaunch'''
             .split(RegExp(r'\s+')))
       key: 'bool',
     for (final key

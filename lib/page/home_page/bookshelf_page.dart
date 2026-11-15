@@ -1,4 +1,5 @@
 import 'package:anx_reader/utils/app_motion.dart';
+import 'package:anx_reader/utils/bookshelf_grid_layout.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:anx_reader/l10n/modu_strings.dart';
@@ -429,37 +430,27 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                 }
                 const crossSpacing = 20.0;
                 const mainSpacing = 30.0;
-                // A configured column/row count wins; 0 keeps the original
-                // cover-width derived layout and natural scrolling height.
-                final preferredColumns = Prefs().bookshelfGridColumns;
-                final columns = preferredColumns > 0
-                    ? preferredColumns
-                    : max(1, constraints.maxWidth ~/ Prefs().bookCoverWidth);
-                final rows = Prefs().bookshelfGridRows;
-                final childWidth = max(
-                    1.0,
-                    (constraints.maxWidth -
-                            padding.horizontal -
-                            (columns - 1) * crossSpacing) /
-                        columns);
-                final viewportHeight = constraints.maxHeight.isFinite
-                    ? constraints.maxHeight
-                    : MediaQuery.sizeOf(context).height;
-                final childHeight = rows > 0
-                    ? max(
-                        80.0,
-                        (viewportHeight -
-                                padding.vertical -
-                                (rows - 1) * mainSpacing) /
-                            rows)
-                    : childWidth * 2.1;
+                // Shared with the opened-folder dialog: the column/row
+                // settings must resolve to the same card geometry everywhere.
+                final geometry = resolveBookshelfGridGeometry(
+                  maxWidth: constraints.maxWidth,
+                  viewportHeight: constraints.maxHeight.isFinite
+                      ? constraints.maxHeight
+                      : MediaQuery.sizeOf(context).height,
+                  padding: padding,
+                  crossSpacing: crossSpacing,
+                  mainSpacing: mainSpacing,
+                  preferredColumns: Prefs().bookshelfGridColumns,
+                  rows: Prefs().bookshelfGridRows,
+                  coverWidth: Prefs().bookCoverWidth,
+                );
                 return GridView(
                   key: _gridViewKey,
                   controller: _scrollController,
                   padding: padding,
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: columns,
-                    childAspectRatio: childWidth / childHeight,
+                    crossAxisCount: geometry.columns,
+                    childAspectRatio: geometry.childAspectRatio,
                     mainAxisSpacing: mainSpacing,
                     crossAxisSpacing: crossSpacing,
                   ),

@@ -1,4 +1,5 @@
 import 'package:anx_reader/widgets/settings/setting_help_title.dart';
+import 'package:anx_reader/config/shared_preference_provider.dart';
 import 'package:anx_reader/utils/app_motion.dart';
 import 'package:anx_reader/l10n/modu_strings.dart';
 import 'dart:io';
@@ -169,8 +170,11 @@ class AppUpdateDialog extends StatelessWidget {
           final storeBuild =
               EnvVar.isStoreBuild || EnvVar.isFdroid || EnvVar.isOhosStore;
           final status = switch (phase) {
-            UpdatePhase.idle => ModuStrings.text(
-                context, "启动时自动检查更新。", "Check for updates on launch."),
+            UpdatePhase.idle => Prefs().autoCheckUpdateOnLaunch
+                ? ModuStrings.text(
+                    context, "启动时自动检查更新。", "Check for updates on launch.")
+                : ModuStrings.text(context, "自动检查已关闭，请手动检查更新。",
+                    "Automatic checks are off. Check manually."),
             UpdatePhase.checking =>
               ModuStrings.text(context, '正在检查版本…', 'Checking for updates…'),
             UpdatePhase.current => ModuStrings.text(

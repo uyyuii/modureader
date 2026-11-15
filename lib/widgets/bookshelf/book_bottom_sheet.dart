@@ -32,6 +32,7 @@ import 'package:anx_reader/utils/share_file.dart';
 import 'package:anx_reader/utils/toast/common.dart';
 import 'package:anx_reader/widgets/bookshelf/book_cover.dart';
 import 'package:anx_reader/widgets/bookshelf/book_knowledge_actions.dart';
+import 'package:anx_reader/widgets/bookshelf/book_info_dialog.dart';
 import 'package:anx_reader/widgets/bookshelf/book_embedding_model_dialog.dart';
 import 'package:anx_reader/service/knowledge/book_embedding_preferences.dart';
 import 'package:anx_reader/widgets/icon_and_text.dart';
@@ -44,6 +45,7 @@ import 'package:path/path.dart' as p;
 
 enum BookAction {
   details,
+  info,
   scanned,
   pin,
   vectorize,
@@ -342,6 +344,9 @@ class BookBottomSheet extends ConsumerWidget {
                 case BookAction.details:
                   handleDetail(context);
                   break;
+                case BookAction.info:
+                  await showBookInfoDialog(context, book);
+                  break;
                 case BookAction.pin:
                   try {
                     await ref
@@ -405,6 +410,10 @@ class BookBottomSheet extends ConsumerWidget {
             itemBuilder: (context) => [
               entry(BookAction.details, Icons.info_outline,
                   ModuStrings.text(context, '书籍详情', 'Book details')),
+              entry(BookAction.info, Icons.description_outlined,
+                  ModuStrings.text(context, '书籍信息', 'Book info'),
+                  subtitle: ModuStrings.text(context, '文件大小 · 路径 · 阅读时长',
+                      'Size · Path · Reading time')),
               if (DocumentReadingMode.supportsImageBook(book.filePath))
                 entry(
                     BookAction.scanned,

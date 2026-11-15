@@ -2218,6 +2218,17 @@ class Prefs extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- Custom build: startup update check ---
+  // Default true so existing installs keep checking until the user opts out.
+  // Only the automatic startup request is gated; manual checks still work.
+  bool get autoCheckUpdateOnLaunch =>
+      prefs.getBool('autoCheckUpdateOnLaunch') ?? true;
+
+  set autoCheckUpdateOnLaunch(bool value) {
+    prefs.setBool('autoCheckUpdateOnLaunch', value);
+    notifyListeners();
+  }
+
   bool get recentReadFirstWhenFileNameSort =>
       prefs.getBool('recentReadFirstWhenFileNameSort') ?? true;
 

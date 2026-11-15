@@ -101,7 +101,11 @@ Future<void> openAboutDialog() async {
     animationStyle: AppMotion.style,
     context: navigatorKey.currentContext!,
     builder: (BuildContext context) {
-      return AlertDialog(
+      // Prefs is a ChangeNotifier; rebuild the dialog so the update-check
+      // switch reflects its new value immediately.
+      return AnimatedBuilder(
+        animation: Prefs(),
+        builder: (context, _) => AlertDialog(
           content: ConstrainedBox(
         constraints: const BoxConstraints(
           maxWidth: 500,
@@ -151,6 +155,22 @@ Future<void> openAboutDialog() async {
                               '检查版本 · 下载 · 安装',
                               'Check version · Download · Install')),
                           onTap: () => checkUpdate(true)),
+                    if (EnvVar.enableCheckUpdate)
+                      SwitchListTile(
+                        key: const ValueKey('about-auto-check-update'),
+                        secondary:
+                            const Icon(Icons.update_disabled_outlined),
+                        title: Text(ModuStrings.text(context,
+                            '启动时自动检查更新', 'Check for updates on launch')),
+                        subtitle: Text(ModuStrings.text(
+                            context,
+                            '关闭后仍可手动检查更新',
+                            'Manual checks still work when this is off')),
+                        value: Prefs().autoCheckUpdateOnLaunch,
+                        onChanged: (bool value) {
+                          Prefs().autoCheckUpdateOnLaunch = value;
+                        },
+                      ),
                     ListTile(
                       key: const ValueKey('about-feedback'),
                       leading: const Icon(Icons.bug_report_outlined),
@@ -217,7 +237,8 @@ Future<void> openAboutDialog() async {
             ),
           ),
         ),
-      ));
+      )),
+      );
     },
   );
 }

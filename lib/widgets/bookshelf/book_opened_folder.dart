@@ -6,6 +6,7 @@ import 'package:anx_reader/models/book.dart';
 import 'package:anx_reader/providers/book_list.dart';
 import 'package:anx_reader/providers/bookshelf_pins.dart';
 import 'package:anx_reader/providers/tb_groups.dart';
+import 'package:anx_reader/utils/bookshelf_grid_layout.dart';
 import 'package:anx_reader/widgets/bookshelf/book_item.dart';
 import 'package:anx_reader/widgets/bookshelf/book_selection_actions.dart';
 import 'package:anx_reader/widgets/bookshelf/folder_pin_menu.dart';
@@ -159,19 +160,43 @@ class _BookOpenedFolderState extends ConsumerState<BookOpenedFolder> {
     const outerInset = 12.0;
     const contentInset = 12.0;
     const horizontalInsets = 2 * (outerInset + contentInset);
+    const gridCrossSpacing = 10.0;
+    const gridMainSpacing = 10.0;
     final availableWidth = math.max(
         0.0,
         math.min(520.0,
             media.size.width - media.padding.horizontal - horizontalInsets));
     final coverWidth = Prefs().bookCoverWidth.clamp(80.0, 260.0);
-    // Match the shelf's viewport-based column count. Dialog padding must not
-    // drop a whole column; cards can shrink slightly to fit the inner grid.
-    final columns = math.max(
+    // Honour the shelf's column/row settings inside folders too. With 0
+    // columns we keep the original cover-width derivation verbatim; a
+    // configured value wins (the old min(..., books.length) clamp used to
+    // swallow it).
+    final preferredColumns = Prefs().bookshelfGridColumns;
+    final autoColumns = math.max(
         1,
         math.min(math.max(2, books.length),
             ((availableWidth + horizontalInsets) / coverWidth).floor()));
+    final columns = preferredColumns > 0 ? preferredColumns : autoColumns;
+    // contentWidth must follow columns, otherwise the SizedBox and the grid
+    // disagree and cards overflow or leave a wide empty gutter.
     final contentWidth = math.min(availableWidth,
-        math.max(240.0, columns * coverWidth + (columns - 1) * 10));
+        math.max(240.0,
+            columns * coverWidth + (columns - 1) * gridCrossSpacing));
+    // The dialog has no fixed viewport, so derive the row height from a
+    // bounded fraction of the screen. The shared helper keeps this formula
+    // identical to the shelf page; rows == 0 restores the original 1 / 2.2
+    // card ratio (via naturalAspectDivisor) so the default look is unchanged.
+    final geometry = resolveBookshelfGridGeometry(
+      maxWidth: contentWidth,
+      viewportHeight: math.min(media.size.height * 0.55, 560.0),
+      padding: EdgeInsets.zero,
+      crossSpacing: gridCrossSpacing,
+      mainSpacing: gridMainSpacing,
+      preferredColumns: columns,
+      rows: Prefs().bookshelfGridRows,
+      coverWidth: coverWidth,
+      naturalAspectDivisor: 2.2,
+    );
     final dialog = AlertDialog(
       // OHOS defaults to an outer scroll view; the grid needs bounded height.
       scrollable: false,
@@ -230,10 +255,10 @@ class _BookOpenedFolderState extends ConsumerState<BookOpenedFolder> {
         child: GridView.builder(
             shrinkWrap: true,
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: columns,
-              childAspectRatio: 1 / 2.2,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
+              crossAxisCount: geometry.columns,
+              childAspectRatio: geometry.childAspectRatio,
+              crossAxisSpacing: gridCrossSpacing,
+              mainAxisSpacing: gridMainSpacing,
             ),
             itemCount: books.length,
             itemBuilder: (context, index) => Stack(
