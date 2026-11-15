@@ -36,12 +36,14 @@ showAuthorOnDefaultCover openBookAnimation bookshelfListMode onlySyncWhenWifi us
 bottomNavigatorShowRemote bottomNavigatorShowStatistics bottomNavigatorShowAI syncCompletedToast autoSync readingTimedSync
 syncPreviewBeforeSync
 isSystemTts showTextUnderIconButton notesExportMergeChapters verticalRedFrame enableJsForEpub themeAppliesToReader
-httpProxyEnabled customCSSEnabled allowMixWithOtherAudio tapOnlyPageTurn continuousScroll scrollAutoAlign longPressSelectParagraph adjustableReaderPopups aiReadingSkillsVisible aiSkillTemplateDraft ocrPrecacheEnabled'''
+httpProxyEnabled customCSSEnabled allowMixWithOtherAudio tapOnlyPageTurn continuousScroll scrollAutoAlign longPressSelectParagraph adjustableReaderPopups aiReadingSkillsVisible aiSkillTemplateDraft ocrPrecacheEnabled
+hideLegacyImport recentReadFirstWhenFileNameSort'''
             .split(RegExp(r'\s+')))
       key: 'bool',
     for (final key
         in '''themeColor awakeTime dailyCheckInMinutes pageTurningType aiRpm aiMaxTokens aiContextTurns maxAiCacheCount
-readingSyncMinutes excerptShareColorIndex excerptShareBgimgIndex httpProxyPort customCssDefaultIndex scrollPagePercent selectionSearchZoomPercent webTranslationZoomPercent eInkRefreshPages ocrPrecachePages'''
+readingSyncMinutes excerptShareColorIndex excerptShareBgimgIndex httpProxyPort customCssDefaultIndex scrollPagePercent selectionSearchZoomPercent webTranslationZoomPercent eInkRefreshPages ocrPrecachePages
+bookshelfGridColumns bookshelfGridRows recentReadWindowDays coverMaxWidth coverMaxHeight coverJpegQuality coverMinCompressBytes'''
             .split(RegExp(r'\s+')))
       key: 'int',
     for (final key

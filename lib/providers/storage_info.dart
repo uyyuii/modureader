@@ -8,6 +8,7 @@ import 'package:anx_reader/utils/get_path/databases_path.dart';
 import 'package:anx_reader/utils/get_path/get_base_path.dart';
 import 'package:anx_reader/utils/get_path/get_cache_dir.dart';
 import 'package:anx_reader/utils/get_path/log_file.dart';
+import 'package:anx_reader/utils/import_book.dart';
 import 'package:anx_reader/utils/log/common.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -143,5 +144,46 @@ class StorageInfo extends _$StorageInfo {
     await file.delete();
     state = AsyncData(await build());
     ref.watch(fontListProvider.notifier).refresh();
+  }
+
+  /// Re-encode every stored cover using the current thumbnail settings.
+  /// File names are preserved in place so `tb_books.cover_path` and sync
+  /// paths stay valid. Returns the number of bytes freed.
+  Future<int> recompressAllCovers() async {
+    final coverDir = getCoverDir();
+    if (!await coverDir.exists()) return 0;
+    var saved = 0;
+    await for (final entity in coverDir.list(followLinks: false)) {
+      if (entity is! File) continue;
+      final dot = entity.path.lastIndexOf('.');
+      if (dot == -1) continue;
+      final extension = entity.path.substring(dot + 1).toLowerCase();
+      if (extension != 'jpg' && extension != 'jpeg' && extension != 'png') {
+        continue;
+      }
+      try {
+        final bytes = await entity.readAsBytes();
+        final result = await recompressCoverBytes(bytes, extension);
+        if (result.bytes.length >= bytes.length) continue;
+
+        final temp = File('${entity.path}.cover-tmp');
+        final backup = File('${entity.path}.cover-bak');
+        await temp.writeAsBytes(result.bytes, flush: true);
+        if (await backup.exists()) await backup.delete();
+        await entity.rename(backup.path);
+        try {
+          await temp.rename(entity.path);
+        } catch (_) {
+          if (await backup.exists()) await backup.rename(entity.path);
+          rethrow;
+        }
+        if (await backup.exists()) await backup.delete();
+        saved += bytes.length - result.bytes.length;
+      } catch (error) {
+        AnxLog.warning('Cover recompression failed for one file: $error');
+      }
+    }
+    state = AsyncData(await build());
+    return saved;
   }
 }

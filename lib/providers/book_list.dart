@@ -11,7 +11,9 @@ import 'package:anx_reader/providers/bookshelf_pins.dart';
 import 'package:anx_reader/utils/log/common.dart';
 import 'package:anx_reader/providers/tags.dart'
     show kNoTagFilterId, tagSelectionProvider;
+import 'package:anx_reader/service/linked_books.dart';
 import 'package:lpinyin/lpinyin.dart';
+import 'package:path/path.dart' as p;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'book_list.g.dart';
@@ -56,10 +58,41 @@ class BookList extends _$BookList {
     return pinyina.compareTo(pinyinb);
   }
 
+  /// Linked books keep an opaque key in `filePath`; resolve it so directory
+  /// libraries are sorted by the real on-disk name instead of a UUID.
+  String _fileNameOf(Book book) {
+    final path = LinkedBooks.resolve(book.filePath) ?? book.filePath;
+    return p.basename(path);
+  }
+
+  bool _isRecentlyRead(Book book, DateTime now, Duration window) {
+    final hasReadingHistory = book.readingPositionClock != null ||
+        book.readingPercentage > 0.02 ||
+        book.lastReadPosition.isNotEmpty;
+    if (!hasReadingHistory) return false;
+    // `lastReadTime` falls back to `updateTime` when no position record
+    // exists, so require an actual reading trace before applying the window.
+    return now.difference(book.lastReadTime).inSeconds.abs() <=
+        window.inSeconds;
+  }
+
   List<Book> sortBooks(List<Book> books) {
+    final field = Prefs().sortField;
+    final ascending = Prefs().sortOrder == SortOrderEnum.ascending;
+    // Recently read books stay on top when sorting by name. Manual pins are
+    // applied afterwards by applyBookshelfPins and therefore still win.
+    final recentFirst = field != SortFieldEnum.lastReadTime &&
+        Prefs().recentReadFirstWhenFileNameSort;
+    final now = DateTime.now();
+    final window = Duration(days: Prefs().recentReadWindowDays);
     books.sort((a, b) {
+      if (recentFirst) {
+        final ra = _isRecentlyRead(a, now, window);
+        final rb = _isRecentlyRead(b, now, window);
+        if (ra != rb) return ra ? -1 : 1;
+      }
       int compareResult;
-      switch (Prefs().sortField) {
+      switch (field) {
         case SortFieldEnum.title:
           compareResult = getChineseCompareResult(a.title, b.title);
           break;
@@ -80,10 +113,16 @@ class BookList extends _$BookList {
         case SortFieldEnum.importTime:
           compareResult = a.createTime.compareTo(b.createTime);
           break;
+        case SortFieldEnum.fileName:
+          compareResult =
+              getChineseCompareResult(_fileNameOf(a), _fileNameOf(b));
+          if (compareResult == 0) {
+            compareResult =
+                (a.md5 ?? a.filePath).compareTo(b.md5 ?? b.filePath);
+          }
+          break;
       }
-      return Prefs().sortOrder == SortOrderEnum.ascending
-          ? compareResult
-          : -compareResult;
+      return ascending ? compareResult : -compareResult;
     });
     return books;
   }

@@ -259,6 +259,189 @@ class _AppearanceSettingState extends State<AppearanceSetting> {
         SettingsSection(
             title: Text(L10n.of(context).settingsBookshelfCover),
             tiles: [
+              SettingsTile.switchTile(
+                title: Text(ModuStrings.text(
+                    context, '书架使用列表视图', 'Use list view on bookshelf')),
+                description: Text(ModuStrings.text(
+                    context, '关闭则显示网格封面。', 'Off shows the cover grid.')),
+                leading: const Icon(Icons.view_list_outlined),
+                initialValue: Prefs().bookshelfListMode,
+                onToggle: (bool value) {
+                  setState(() {
+                    Prefs().bookshelfListMode = value;
+                  });
+                },
+              ),
+              CustomSettingsTile(
+                  child: ListTile(
+                title: Text(ModuStrings.text(
+                    context, '网格列数（0 = 自动）', 'Grid columns (0 = auto)')),
+                subtitle: Row(
+                  children: [
+                    Text(Prefs().bookshelfGridColumns == 0
+                        ? ModuStrings.text(context, '自动', 'Auto')
+                        : '${Prefs().bookshelfGridColumns}'),
+                    Expanded(
+                      child: Slider(
+                        value: Prefs().bookshelfGridColumns.toDouble(),
+                        min: 0,
+                        max: 8,
+                        divisions: 8,
+                        onChanged: (value) {
+                          setState(() {
+                            Prefs().bookshelfGridColumns = value.round();
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              )),
+              CustomSettingsTile(
+                  child: ListTile(
+                title: Text(ModuStrings.text(context, '网格每屏行数（0 = 自动）',
+                    'Grid rows per screen (0 = auto)')),
+                subtitle: Row(
+                  children: [
+                    Text(Prefs().bookshelfGridRows == 0
+                        ? ModuStrings.text(context, '自动', 'Auto')
+                        : '${Prefs().bookshelfGridRows}'),
+                    Expanded(
+                      child: Slider(
+                        value: Prefs().bookshelfGridRows.toDouble(),
+                        min: 0,
+                        max: 6,
+                        divisions: 6,
+                        onChanged: (value) {
+                          setState(() {
+                            Prefs().bookshelfGridRows = value.round();
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              )),
+              SettingsTile.switchTile(
+                title: Text(ModuStrings.text(
+                    context, '最近阅读优先', 'Recent reads first')),
+                description: Text(ModuStrings.text(context,
+                    '按文件名排序时，最近读过的书排在最前。',
+                    'Keep recently read books first when sorting by name.')),
+                leading: const Icon(Icons.schedule),
+                initialValue: Prefs().recentReadFirstWhenFileNameSort,
+                onToggle: (bool value) {
+                  setState(() {
+                    Prefs().recentReadFirstWhenFileNameSort = value;
+                  });
+                },
+              ),
+              CustomSettingsTile(
+                  child: ListTile(
+                title: Text(ModuStrings.text(
+                    context, '最近阅读天数', 'Recent read window (days)')),
+                subtitle: Row(
+                  children: [
+                    Text('${Prefs().recentReadWindowDays}'),
+                    Expanded(
+                      child: Slider(
+                        value: Prefs().recentReadWindowDays.toDouble(),
+                        min: 1,
+                        max: 30,
+                        divisions: 29,
+                        onChanged: (value) {
+                          setState(() {
+                            Prefs().recentReadWindowDays = value.round();
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              )),
+              SettingsTile.switchTile(
+                title: Text(ModuStrings.text(
+                    context, '隐藏复制式导入', 'Hide copy-based import')),
+                description: Text(ModuStrings.text(context,
+                    '默认只显示目录直读；TXT/Markdown/UMD 仍需复制导入时可关闭。',
+                    'Show directory reading only; turn off if TXT/Markdown/UMD still need import.')),
+                leading: const Icon(Icons.folder_open_outlined),
+                initialValue: Prefs().hideLegacyImport,
+                onToggle: (bool value) {
+                  setState(() {
+                    Prefs().hideLegacyImport = value;
+                  });
+                },
+              ),
+              CustomSettingsTile(
+                  child: ListTile(
+                title: Text(ModuStrings.text(context, '封面最大宽度（px）',
+                    'Max cover width (px)')),
+                subtitle: Row(
+                  children: [
+                    Text('${Prefs().coverMaxWidth}'),
+                    Expanded(
+                      child: Slider(
+                        value: Prefs().coverMaxWidth.toDouble(),
+                        min: 200,
+                        max: 1600,
+                        divisions: 14,
+                        onChanged: (value) {
+                          setState(() {
+                            Prefs().coverMaxWidth = value.round();
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              )),
+              CustomSettingsTile(
+                  child: ListTile(
+                title: Text(ModuStrings.text(context, '封面最大高度（px）',
+                    'Max cover height (px)')),
+                subtitle: Row(
+                  children: [
+                    Text('${Prefs().coverMaxHeight}'),
+                    Expanded(
+                      child: Slider(
+                        value: Prefs().coverMaxHeight.toDouble(),
+                        min: 300,
+                        max: 2400,
+                        divisions: 21,
+                        onChanged: (value) {
+                          setState(() {
+                            Prefs().coverMaxHeight = value.round();
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              )),
+              CustomSettingsTile(
+                  child: ListTile(
+                title: Text(ModuStrings.text(
+                    context, '封面 JPEG 质量', 'Cover JPEG quality')),
+                subtitle: Row(
+                  children: [
+                    Text('${Prefs().coverJpegQuality}'),
+                    Expanded(
+                      child: Slider(
+                        value: Prefs().coverJpegQuality.toDouble(),
+                        min: 30,
+                        max: 100,
+                        divisions: 14,
+                        onChanged: (value) {
+                          setState(() {
+                            Prefs().coverJpegQuality = value.round();
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              )),
               CustomSettingsTile(
                   child: ListTile(
                 title: Text(L10n.of(context).settingsBookshelfCoverWidth),

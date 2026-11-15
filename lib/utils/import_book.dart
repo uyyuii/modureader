@@ -12,33 +12,72 @@ import 'package:image/image.dart' as img;
 
 /// Covers are stored once and reused for the shelf, detail page and TTS.
 /// Keeping them at this size cuts typical covers from hundreds of KB or more
-/// to a few dozen KB, and keeps shelf decoding cheap.
-const int _maxCoverWidth = 600;
-const int _maxCoverHeight = 900;
-const int _jpegQuality = 82;
-const int _minCompressBytes = 80 * 1024;
+/// to a few dozen KB, and keeps shelf decoding cheap. These are only the
+/// defaults; the user can tune them in Appearance settings.
+const int _defaultMaxCoverWidth = 600;
+const int _defaultMaxCoverHeight = 900;
+const int _defaultJpegQuality = 82;
 const String _coverOptimizedPrefsKey = 'coverCompressionV1';
 
 typedef CoverCompression = ({Uint8List bytes, String extension});
 
+/// Everything the background isolate needs. SharedPreferences is not readable
+/// inside [compute], so the current settings must be passed in explicitly.
 class _CoverInput {
-  const _CoverInput(this.bytes, this.extension);
+  const _CoverInput(this.bytes, this.extension, this.maxWidth, this.maxHeight,
+      this.jpegQuality);
+
   final Uint8List bytes;
   final String extension;
+  final int maxWidth;
+  final int maxHeight;
+  final int jpegQuality;
 }
 
-CoverCompression _compressCoverEntry(_CoverInput input) =>
-    compressCoverBytes(input.bytes, input.extension);
+CoverCompression _compressCoverEntry(_CoverInput input) => compressCoverBytes(
+      input.bytes,
+      input.extension,
+      maxWidth: input.maxWidth,
+      maxHeight: input.maxHeight,
+      jpegQuality: input.jpegQuality,
+    );
 
-Future<CoverCompression> _compressCover(Uint8List bytes, String extension) {
-  if (bytes.length <= _minCompressBytes) {
+Future<CoverCompression> _compressCover(
+  Uint8List bytes,
+  String extension, {
+  bool force = false,
+}) {
+  final prefs = Prefs();
+  final minBytes = force ? 0 : prefs.coverMinCompressBytes;
+  if (bytes.length <= minBytes) {
     return Future.value((bytes: bytes, extension: extension));
   }
-  return compute(_compressCoverEntry, _CoverInput(bytes, extension));
+  return compute(
+    _compressCoverEntry,
+    _CoverInput(
+      bytes,
+      extension,
+      prefs.coverMaxWidth,
+      prefs.coverMaxHeight,
+      prefs.coverJpegQuality,
+    ),
+  );
 }
 
+/// Re-encode an already stored cover with the current settings, ignoring the
+/// size threshold. Used by the storage manager's "recompress all" action.
+Future<CoverCompression> recompressCoverBytes(
+        Uint8List bytes, String extension) =>
+    _compressCover(bytes, extension, force: true);
+
 /// Pure function so it can run on a background isolate via [compute].
-CoverCompression compressCoverBytes(Uint8List bytes, String extension) {
+CoverCompression compressCoverBytes(
+  Uint8List bytes,
+  String extension, {
+  int maxWidth = _defaultMaxCoverWidth,
+  int maxHeight = _defaultMaxCoverHeight,
+  int jpegQuality = _defaultJpegQuality,
+}) {
   try {
     final decoded = img.decodeImage(bytes);
     if (decoded == null) {
@@ -48,8 +87,8 @@ CoverCompression compressCoverBytes(Uint8List bytes, String extension) {
     // without baking it would rotate phone-photo custom covers.
     final oriented = img.bakeOrientation(decoded);
     final scale = math.min(
-      _maxCoverWidth / oriented.width,
-      _maxCoverHeight / oriented.height,
+      maxWidth / oriented.width,
+      maxHeight / oriented.height,
     );
     var resized = oriented;
     if (scale < 1) {
@@ -66,7 +105,7 @@ CoverCompression compressCoverBytes(Uint8List bytes, String extension) {
       return (bytes: img.encodePng(resized, level: 6), extension: 'png');
     }
     return (
-      bytes: img.encodeJpg(resized, quality: _jpegQuality),
+      bytes: img.encodeJpg(resized, quality: jpegQuality),
       extension: 'jpg',
     );
   } catch (error) {
@@ -131,6 +170,7 @@ class CoverOptimizer {
     try {
       final dir = getCoverDir();
       if (!await dir.exists()) return;
+      final minBytes = Prefs().coverMinCompressBytes;
       await for (final entity in dir.list(followLinks: false)) {
         if (entity is! File) continue;
         final dot = entity.path.lastIndexOf('.');
@@ -142,7 +182,7 @@ class CoverOptimizer {
         }
         try {
           final stat = await entity.stat();
-          if (stat.size < _minCompressBytes) continue;
+          if (stat.size < minBytes) continue;
           final bytes = await entity.readAsBytes();
           final result = await _compressCover(bytes, extension);
           if (result.bytes.length >= bytes.length) continue;

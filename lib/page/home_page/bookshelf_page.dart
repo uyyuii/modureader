@@ -18,6 +18,7 @@ import 'package:anx_reader/providers/book_filters.dart';
 import 'package:anx_reader/providers/tags.dart';
 import 'package:anx_reader/service/knowledge/book_knowledge_index_queue.dart';
 import 'package:anx_reader/service/knowledge/book_knowledge_index_service.dart';
+import 'package:anx_reader/page/home_page/local_library_page.dart';
 import 'package:anx_reader/page/search/search_page.dart';
 import 'package:anx_reader/utils/color/hash_color.dart';
 import 'package:anx_reader/utils/log/common.dart';
@@ -426,16 +427,41 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                     separatorBuilder: (_, __) => const Divider(height: 1),
                   );
                 }
+                const crossSpacing = 20.0;
+                const mainSpacing = 30.0;
+                // A configured column/row count wins; 0 keeps the original
+                // cover-width derived layout and natural scrolling height.
+                final preferredColumns = Prefs().bookshelfGridColumns;
+                final columns = preferredColumns > 0
+                    ? preferredColumns
+                    : max(1, constraints.maxWidth ~/ Prefs().bookCoverWidth);
+                final rows = Prefs().bookshelfGridRows;
+                final childWidth = max(
+                    1.0,
+                    (constraints.maxWidth -
+                            padding.horizontal -
+                            (columns - 1) * crossSpacing) /
+                        columns);
+                final viewportHeight = constraints.maxHeight.isFinite
+                    ? constraints.maxHeight
+                    : MediaQuery.sizeOf(context).height;
+                final childHeight = rows > 0
+                    ? max(
+                        80.0,
+                        (viewportHeight -
+                                padding.vertical -
+                                (rows - 1) * mainSpacing) /
+                            rows)
+                    : childWidth * 2.1;
                 return GridView(
                   key: _gridViewKey,
                   controller: _scrollController,
                   padding: padding,
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount:
-                        max(1, constraints.maxWidth ~/ Prefs().bookCoverWidth),
-                    childAspectRatio: 1 / 2.1,
-                    mainAxisSpacing: 30,
-                    crossAxisSpacing: 20,
+                    crossAxisCount: columns,
+                    childAspectRatio: childWidth / childHeight,
+                    mainAxisSpacing: mainSpacing,
+                    crossAxisSpacing: crossSpacing,
                   ),
                   children: [
                     for (var index = 0; index < books.length; index++)
@@ -609,18 +635,41 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
               PopupMenuButton<int>(
                 popUpAnimationStyle: AppMotion.style,
                 icon: const Icon(Icons.add),
-                tooltip: ModuStrings.text(context, '导入书籍', 'Import books'),
-                onSelected: (mode) => pickBooksForImport(context, ref,
-                    folder: mode.isOdd, inPlace: mode >= 2),
+                tooltip: ModuStrings.text(context, '添加书籍', 'Add books'),
+                onSelected: (mode) {
+                  if (mode == 4) {
+                    // Directory library: browse a real folder and register
+                    // the books in place. No staging, no copy, no import step.
+                    Navigator.of(context)
+                        .push<void>(MaterialPageRoute<void>(
+                            builder: (_) => const LocalLibraryPage()))
+                        .then((_) {
+                      if (mounted) {
+                        ref.read(bookListProvider.notifier).refresh();
+                      }
+                    });
+                    return;
+                  }
+                  pickBooksForImport(context, ref,
+                      folder: mode.isOdd, inPlace: mode >= 2);
+                },
                 itemBuilder: (context) => [
                   PopupMenuItem(
-                      value: 0,
-                      child: Text(ModuStrings.text(
-                          context, '选择文件（可多选）', 'Select files (multiple)'))),
-                  PopupMenuItem(
-                      value: 1,
-                      child: Text(
-                          ModuStrings.text(context, '导入文件夹', 'Import folder'))),
+                      value: 4,
+                      child: Text(ModuStrings.text(context,
+                          '浏览目录加入书架（不导入）', 'Browse folder, add in place'))),
+                  // The legacy copy-based importer stays available behind a
+                  // setting because TXT/Markdown/UMD still need conversion.
+                  if (!Prefs().hideLegacyImport) ...[
+                    PopupMenuItem(
+                        value: 0,
+                        child: Text(ModuStrings.text(context,
+                            '选择文件（复制导入，较慢）', 'Select files (copies files)'))),
+                    PopupMenuItem(
+                        value: 1,
+                        child: Text(ModuStrings.text(context,
+                            '导入文件夹（复制导入）', 'Import folder (copies files)'))),
+                  ],
                   if (Platform.isIOS || Platform.isAndroid) ...[
                     PopupMenuItem(
                         value: 2,
@@ -689,7 +738,38 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                               ],
                             );
                           }),
-                        )
+                        ),
+                        PopupMenuItem(
+                          enabled: false,
+                          child: StatefulBuilder(builder: (_, setState) {
+                            return SizedBox(
+                              width: 240,
+                              child: SwitchListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(ModuStrings.text(
+                                    context, '最近阅读优先', 'Recent reads first')),
+                                subtitle: Text(
+                                  ModuStrings.text(
+                                      context,
+                                      '按文件名排序时，把最近读过的书放在最前',
+                                      'Keep recently read books first when sorting by name'),
+                                  maxLines: 2,
+                                ),
+                                value:
+                                    Prefs().recentReadFirstWhenFileNameSort,
+                                onChanged: (value) {
+                                  Prefs().recentReadFirstWhenFileNameSort =
+                                      value;
+                                  ref
+                                      .read(bookListProvider.notifier)
+                                      .refresh();
+                                  setState(() {});
+                                },
+                              ),
+                            );
+                          }),
+                        ),
                       ],
                     );
                   }),

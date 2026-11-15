@@ -2184,6 +2184,110 @@ class Prefs extends ChangeNotifier {
     );
   }
 
+  // --- Custom build: bookshelf layout and sorting ---
+  // 0 keeps the legacy behaviour (columns derived from bookCoverWidth).
+  int get bookshelfGridColumns {
+    final value = prefs.getInt('bookshelfGridColumns') ?? 0;
+    if (value < 0 || value > 10) return 0;
+    return value;
+  }
+
+  set bookshelfGridColumns(int value) {
+    final normalized = value < 0 ? 0 : (value > 10 ? 10 : value);
+    prefs.setInt('bookshelfGridColumns', normalized);
+    notifyListeners();
+  }
+
+  // 0 means natural scrolling height; >0 fixes the visible rows per screen.
+  int get bookshelfGridRows {
+    final value = prefs.getInt('bookshelfGridRows') ?? 0;
+    if (value < 0 || value > 8) return 0;
+    return value;
+  }
+
+  set bookshelfGridRows(int value) {
+    final normalized = value < 0 ? 0 : (value > 8 ? 8 : value);
+    prefs.setInt('bookshelfGridRows', normalized);
+    notifyListeners();
+  }
+
+  bool get hideLegacyImport => prefs.getBool('hideLegacyImport') ?? true;
+
+  set hideLegacyImport(bool value) {
+    prefs.setBool('hideLegacyImport', value);
+    notifyListeners();
+  }
+
+  bool get recentReadFirstWhenFileNameSort =>
+      prefs.getBool('recentReadFirstWhenFileNameSort') ?? true;
+
+  set recentReadFirstWhenFileNameSort(bool value) {
+    prefs.setBool('recentReadFirstWhenFileNameSort', value);
+    notifyListeners();
+  }
+
+  int get recentReadWindowDays {
+    final value = prefs.getInt('recentReadWindowDays') ?? 7;
+    if (value < 1 || value > 90) return 7;
+    return value;
+  }
+
+  set recentReadWindowDays(int value) {
+    final normalized = value < 1 ? 1 : (value > 90 ? 90 : value);
+    prefs.setInt('recentReadWindowDays', normalized);
+    notifyListeners();
+  }
+
+  // --- Custom build: cover thumbnail quality ---
+  int get coverMaxWidth {
+    final value = prefs.getInt('coverMaxWidth') ?? 600;
+    if (value < 200 || value > 1600) return 600;
+    return value;
+  }
+
+  set coverMaxWidth(int value) {
+    final normalized = value < 200 ? 200 : (value > 1600 ? 1600 : value);
+    prefs.setInt('coverMaxWidth', normalized);
+    notifyListeners();
+  }
+
+  int get coverMaxHeight {
+    final value = prefs.getInt('coverMaxHeight') ?? 900;
+    if (value < 300 || value > 2400) return 900;
+    return value;
+  }
+
+  set coverMaxHeight(int value) {
+    final normalized = value < 300 ? 300 : (value > 2400 ? 2400 : value);
+    prefs.setInt('coverMaxHeight', normalized);
+    notifyListeners();
+  }
+
+  int get coverJpegQuality {
+    final value = prefs.getInt('coverJpegQuality') ?? 82;
+    if (value < 30 || value > 100) return 82;
+    return value;
+  }
+
+  set coverJpegQuality(int value) {
+    final normalized = value < 30 ? 30 : (value > 100 ? 100 : value);
+    prefs.setInt('coverJpegQuality', normalized);
+    notifyListeners();
+  }
+
+  int get coverMinCompressBytes {
+    final value = prefs.getInt('coverMinCompressBytes') ?? 80 * 1024;
+    if (value < 0 || value > 2 * 1024 * 1024) return 80 * 1024;
+    return value;
+  }
+
+  set coverMinCompressBytes(int value) {
+    final normalized =
+        value < 0 ? 0 : (value > 2 * 1024 * 1024 ? 2 * 1024 * 1024 : value);
+    prefs.setInt('coverMinCompressBytes', normalized);
+    notifyListeners();
+  }
+
   set showBookFormatBadge(bool status) {
     prefs.setBool('showBookFormatBadge', status);
     notifyListeners();

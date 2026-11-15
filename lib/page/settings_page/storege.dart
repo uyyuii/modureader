@@ -304,6 +304,57 @@ class _StorageSettingsState extends ConsumerState<StorageSettings>
                                 storageInfoAsync.value?.coverSizeStr),
                           ),
                           ListTile(
+                            title: Text(ModuStrings.text(context,
+                                '重新压缩封面缩略图', 'Recompress cover thumbnails')),
+                            subtitle: Text(ModuStrings.text(
+                                context,
+                                '按当前质量设置重写全部封面，文件名不变，可释放存储空间。',
+                                'Rewrite every cover with the current quality settings, keeping file names, to free space.')),
+                            trailing: ElevatedButton(
+                              onPressed: () async {
+                                final confirmed = await showDialog<bool>(
+                                    animationStyle: AppMotion.style,
+                                    context: context,
+                                    builder: (dialogContext) => AlertDialog(
+                                          title: Text(ModuStrings.text(context,
+                                              '重新压缩封面', 'Recompress covers')),
+                                          content: Text(ModuStrings.text(
+                                              context,
+                                              '将按当前设置重新生成全部封面缩略图，文件名保持不变。此操作不可逆，也无法恢复已丢失的原图清晰度。',
+                                              'All covers will be re-encoded with the current settings, keeping their file names. This cannot restore detail already lost.')),
+                                          actions: [
+                                            TextButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(dialogContext, false),
+                                                child: Text(ModuStrings.text(
+                                                    context, '取消', 'Cancel'))),
+                                            TextButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(dialogContext, true),
+                                                child: Text(ModuStrings.text(
+                                                    context, '开始', 'Start'))),
+                                          ],
+                                        ));
+                                if (confirmed != true || !mounted) return;
+                                final saved = await ref
+                                    .read(storageInfoProvider.notifier)
+                                    .recompressAllCovers();
+                                ref.invalidate(storageInfoProvider);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        '${ModuStrings.text(context, '封面重压缩完成', 'Covers recompressed')}  ${(saved / 1024).toStringAsFixed(0)} KB',
+                                      ),
+                                    ),
+                                  );
+                                }
+                              },
+                              child: Text(
+                                  ModuStrings.text(context, '执行', 'Run')),
+                            ),
+                          ),
+                          ListTile(
                             title: Text(L10n.of(context).storageFontFile),
                             trailing: fileSizeTriling(
                                 storageInfoAsync.value?.fontSizeStr),
@@ -492,7 +543,7 @@ class _StorageSettingsState extends ConsumerState<StorageSettings>
                               listFiles: ref
                                   .read(storageInfoProvider.notifier)
                                   .listCoverFiles(),
-                              showDelete: false,
+                              showDelete: true,
                               ref: ref,
                             ),
                             loading: () => const Center(
