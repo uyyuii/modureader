@@ -298,6 +298,66 @@ class _DocumentLayoutEditorState extends State<DocumentLayoutEditor> {
     if (refresh && _layout.autoCrop) _autoCrop();
   }
 
+  /// Equalize the two margins of the current crop frame. Taking the smaller
+  /// margin keeps the rect valid: m <= (left + right) / 2 < 0.5.
+  DocumentPageLayout _symmetricCrop(DocumentPageLayout layout,
+      {required bool horizontal}) {
+    final r = layout.crop;
+    if (horizontal) {
+      final left = r.left, right = 1 - r.right;
+      final m = left < right ? left : right;
+      return layout.copyWith(
+          crop: Rect.fromLTRB(m, r.top, 1 - m, r.bottom), autoCrop: false);
+    }
+    final top = r.top, bottom = 1 - r.bottom;
+    final m = top < bottom ? top : bottom;
+    return layout.copyWith(
+        crop: Rect.fromLTRB(r.left, m, r.right, 1 - m), autoCrop: false);
+  }
+
+  /// Mirror a crop onto the opposite parity. After mirroring, the even page's
+  /// left margin equals the odd page's right margin (and vice versa), which is
+  /// what a scanned spread needs for symmetric inner/outer margins.
+  DocumentPageLayout _mirrorCrop(DocumentPageLayout layout,
+      {required bool horizontal}) {
+    final r = layout.crop;
+    return layout.copyWith(
+        crop: horizontal
+            ? Rect.fromLTRB(1 - r.right, r.top, 1 - r.left, r.bottom)
+            : Rect.fromLTRB(r.left, 1 - r.bottom, r.right, 1 - r.top),
+        autoCrop: false);
+  }
+
+  void _applySymmetry({required bool horizontal}) {
+    if (_saving || _busy || _failed || _detecting) return;
+    if (_paired) {
+      if (_scope != DocumentLayoutScope.odd &&
+          _scope != DocumentLayoutScope.even) {
+        return;
+      }
+      final other = _scope == DocumentLayoutScope.odd
+          ? DocumentLayoutScope.even
+          : DocumentLayoutScope.odd;
+      final mirrored = _mirrorCrop(_layout, horizontal: horizontal);
+      mirrored.validate();
+      setState(() {
+        _draft[other] = mirrored;
+        _dirty.add(other);
+        _saveFailed = false;
+        _cropNotice = null;
+      });
+    } else {
+      final symmetric = _symmetricCrop(_layout, horizontal: horizontal);
+      symmetric.validate();
+      setState(() {
+        _draft[_scope] = symmetric;
+        _dirty.add(_scope);
+        _saveFailed = false;
+        _cropNotice = null;
+      });
+    }
+  }
+
   Widget _controls() => AppScrollbar(
       controller: _controlsScroll,
       child: ScrollConfiguration(
@@ -426,6 +486,39 @@ class _DocumentLayoutEditorState extends State<DocumentLayoutEditor> {
                             label: Text(_detecting
                                 ? tr('识别边界中…', 'Detecting borders…')
                                 : tr('自动裁边', 'Auto crop'))),
+                        Wrap(
+                            key: const ValueKey('crop-symmetry'),
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              ActionChip(
+                                  key: const ValueKey(
+                                      'crop-symmetry-horizontal'),
+                                  label:
+                                      Text(tr('左右对称', 'Horizontal symmetry')),
+                                  onPressed:
+                                      _saving || _busy || _failed || _detecting
+                                          ? null
+                                          : () => _applySymmetry(
+                                              horizontal: true)),
+                              ActionChip(
+                                  key: const ValueKey('crop-symmetry-vertical'),
+                                  label:
+                                      Text(tr('上下对称', 'Vertical symmetry')),
+                                  onPressed:
+                                      _saving || _busy || _failed || _detecting
+                                          ? null
+                                          : () => _applySymmetry(
+                                              horizontal: false)),
+                            ]),
+                        Text(
+                            _paired
+                                ? tr('奇偶页模式：以当前组为基准，把左右／上下裁边镜像到另一组。',
+                                    'Odd/even mode: mirror the current group onto the other one.')
+                                : tr('常规模式：让当前裁边框的左右／上下留白相等。',
+                                    'General mode: equalize the current crop margins.'),
+                            style: Theme.of(context).textTheme.bodySmall),
+                        const SizedBox(height: 4),
                         Text(
                             '${tr('裁边留白（原页宽高百分比）', 'Crop margin (% of page dimensions)')} ${_autoMargin.round()}%'),
                         Row(children: [

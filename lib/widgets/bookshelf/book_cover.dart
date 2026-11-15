@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:anx_reader/config/shared_preference_provider.dart';
 import 'package:anx_reader/models/book.dart';
+import 'package:anx_reader/service/library_files/linked_book_registry.dart';
 import 'package:flutter/material.dart';
 
 class BookCover extends StatelessWidget {
@@ -27,13 +28,29 @@ class BookCover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: LinkedBookRegistry.coverVersion,
+      builder: (context, _, __) => _buildCover(context),
+    );
+  }
+
+  Widget _buildCover(BuildContext context) {
     final double effectiveRadius = radius ?? 8;
     final BorderRadius borderRadius = BorderRadius.circular(effectiveRadius);
-    final File file = File(book.coverFullPath);
+    // Books registered from a directory are inserted with an empty coverPath.
+    // A background extraction fills it later, but the Book held by this widget
+    // is still the old snapshot, so prefer the freshly generated file.
+    final File file = File(
+        LinkedBookRegistry.coverFileFor(book.id) ?? book.coverFullPath);
+    final bool hasCover = file.existsSync();
+    if (!hasCover) {
+      // Idempotent, serial, and capped. Rebuilds when a cover lands.
+      LinkedBookRegistry.requestCover(book);
+    }
 
     Widget child;
 
-    if (file.existsSync()) {
+    if (hasCover) {
       child = Container(
         decoration: BoxDecoration(
           image: DecorationImage(
