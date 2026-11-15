@@ -199,128 +199,147 @@ class _HomeNavigationShellState extends State<HomeNavigationShell> {
         Widget pageFor(int index, ScrollController? controller) =>
             widget.pageBuilder(destinations[index].identifier, controller);
 
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            if (Prefs().appLayoutMode.usesWideLayout(constraints.maxWidth)) {
+        // The home route is the only route on the stack while a tab is shown,
+        // so a system back gesture there normally finishes the activity.
+        // Treat that last step on any non-bookshelf destination as "go to the
+        // bookshelf" instead. Pages pushed on top (settings subpages, search,
+        // the reader, dialogs) still pop one by one, because this PopScope is
+        // registered on the home route and is only consulted when that route
+        // is the topmost one.
+        final onBookshelf =
+            _currentTab == HomeNavigationDestination.bookshelf;
+
+        return PopScope(
+          canPop: onBookshelf,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop || onBookshelf || !mounted) return;
+            setState(() {
+              _currentTab = HomeNavigationDestination.bookshelf;
+            });
+          },
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              if (Prefs().appLayoutMode.usesWideLayout(constraints.maxWidth)) {
+                return Scaffold(
+                  extendBody: true,
+                  body: Row(
+                    children: [
+                      SafeArea(
+                        bottom: false,
+                        child: FilledContainer(
+                          margin: const EdgeInsets.all(16),
+                          color: Prefs().eInkMode
+                              ? ElevationOverlay.applySurfaceTint(
+                                  Theme.of(context).colorScheme.surface,
+                                  Theme.of(context).colorScheme.primary,
+                                  3,
+                                )
+                              : Theme.of(context).scaffoldBackgroundColor,
+                          radius: 20,
+                          child: SafeArea(
+                            child: NavigationRail(
+                              groupAlignment: 1,
+                              extended: false,
+                              selectedIndex: selectedIndex,
+                              onDestinationSelected: (int index) =>
+                                  _selectDestination(destinations[index], true),
+                              destinations: [
+                                for (final destination in destinations)
+                                  NavigationRailDestination(
+                                    icon: Icon(destination.icon),
+                                    label: Text(destination.label),
+                                  ),
+                              ],
+                              labelType: NavigationRailLabelType.all,
+                              backgroundColor: Colors.transparent,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Expanded(child: pageFor(selectedIndex, null)),
+                    ],
+                  ),
+                );
+              }
+
+              final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+              // A compact bar never keeps a sheet-only AI destination selected.
+              final displayIndex =
+                  destinations[selectedIndex].identifier ==
+                      HomeNavigationDestination.ai
+                  ? 0
+                  : selectedIndex;
               return Scaffold(
                 extendBody: true,
-                body: Row(
-                  children: [
-                    SafeArea(
-                      bottom: false,
-                      child: FilledContainer(
-                        margin: const EdgeInsets.all(16),
-                        color: Prefs().eInkMode
-                            ? ElevationOverlay.applySurfaceTint(
-                                Theme.of(context).colorScheme.surface,
-                                Theme.of(context).colorScheme.primary,
-                                3,
-                              )
-                            : Theme.of(context).scaffoldBackgroundColor,
-                        radius: 20,
-                        child: SafeArea(
-                          child: NavigationRail(
-                            groupAlignment: 1,
-                            extended: false,
-                            selectedIndex: selectedIndex,
-                            onDestinationSelected: (int index) =>
-                                _selectDestination(destinations[index], true),
-                            destinations: [
+                body: BottomBar(
+                  duration: AppMotion.duration(const Duration(milliseconds: 120)),
+                  width: 330,
+                  offset: HomeNavigationMetrics.barOffset,
+                  body: (_, controller) => HomeNavigationBody(
+                    hasBottomBar: !keyboardOpen,
+                    scrollBehindBar: true,
+                    child: pageFor(displayIndex, controller),
+                  ),
+                  showIcon: !keyboardOpen,
+                  hideOnScroll: Prefs().autoHideBottomBar,
+                  scrollOpposite: false,
+                  curve: Curves.easeIn,
+                  barColor: Colors.transparent,
+                  iconDecoration: BoxDecoration(
+                    color: Prefs().autoHideBottomBar
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(500),
+                  ),
+                  child: Visibility(
+                    visible: !keyboardOpen,
+                    maintainState: true,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(32),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(
+                          sigmaX: Prefs().eInkMode ? 0 : 12,
+                          sigmaY: Prefs().eInkMode ? 0 : 12,
+                        ),
+                        child: Container(
+                          height: HomeNavigationMetrics.barHeightFor(context),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surfaceContainer
+                                .withAlpha(Prefs().eInkMode ? 255 : 100),
+                            borderRadius: BorderRadius.circular(32),
+                            border: Border.all(
+                              color: Theme.of(context).colorScheme.outline
+                                  .withAlpha(Prefs().eInkMode ? 255 : 90),
+                              width: 0.5,
+                            ),
+                          ),
+                          child: BottomNavigationBar(
+                            selectedFontSize: 12,
+                            enableFeedback: false,
+                            type: BottomNavigationBarType.fixed,
+                            landscapeLayout:
+                                BottomNavigationBarLandscapeLayout.linear,
+                            currentIndex: displayIndex,
+                            onTap: (int index) =>
+                                _selectDestination(destinations[index], false),
+                            items: [
                               for (final destination in destinations)
-                                NavigationRailDestination(
+                                BottomNavigationBarItem(
                                   icon: Icon(destination.icon),
-                                  label: Text(destination.label),
+                                  label: destination.label,
                                 ),
                             ],
-                            labelType: NavigationRailLabelType.all,
                             backgroundColor: Colors.transparent,
+                            elevation: 0,
                           ),
-                        ),
-                      ),
-                    ),
-                    Expanded(child: pageFor(selectedIndex, null)),
-                  ],
-                ),
-              );
-            }
-
-            final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
-            // A compact bar never keeps a sheet-only AI destination selected.
-            final displayIndex =
-                destinations[selectedIndex].identifier ==
-                    HomeNavigationDestination.ai
-                ? 0
-                : selectedIndex;
-            return Scaffold(
-              extendBody: true,
-              body: BottomBar(
-                duration: AppMotion.duration(const Duration(milliseconds: 120)),
-                width: 330,
-                offset: HomeNavigationMetrics.barOffset,
-                body: (_, controller) => HomeNavigationBody(
-                  hasBottomBar: !keyboardOpen,
-                  scrollBehindBar: true,
-                  child: pageFor(displayIndex, controller),
-                ),
-                showIcon: !keyboardOpen,
-                hideOnScroll: Prefs().autoHideBottomBar,
-                scrollOpposite: false,
-                curve: Curves.easeIn,
-                barColor: Colors.transparent,
-                iconDecoration: BoxDecoration(
-                  color: Prefs().autoHideBottomBar
-                      ? Theme.of(context).colorScheme.primary
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(500),
-                ),
-                child: Visibility(
-                  visible: !keyboardOpen,
-                  maintainState: true,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(32),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(
-                        sigmaX: Prefs().eInkMode ? 0 : 12,
-                        sigmaY: Prefs().eInkMode ? 0 : 12,
-                      ),
-                      child: Container(
-                        height: HomeNavigationMetrics.barHeightFor(context),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.surfaceContainer
-                              .withAlpha(Prefs().eInkMode ? 255 : 100),
-                          borderRadius: BorderRadius.circular(32),
-                          border: Border.all(
-                            color: Theme.of(context).colorScheme.outline
-                                .withAlpha(Prefs().eInkMode ? 255 : 90),
-                            width: 0.5,
-                          ),
-                        ),
-                        child: BottomNavigationBar(
-                          selectedFontSize: 12,
-                          enableFeedback: false,
-                          type: BottomNavigationBarType.fixed,
-                          landscapeLayout:
-                              BottomNavigationBarLandscapeLayout.linear,
-                          currentIndex: displayIndex,
-                          onTap: (int index) =>
-                              _selectDestination(destinations[index], false),
-                          items: [
-                            for (final destination in destinations)
-                              BottomNavigationBarItem(
-                                icon: Icon(destination.icon),
-                                label: destination.label,
-                              ),
-                          ],
-                          backgroundColor: Colors.transparent,
-                          elevation: 0,
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         );
       },
     );
