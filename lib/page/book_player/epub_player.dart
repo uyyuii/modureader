@@ -2059,6 +2059,16 @@ class EpubPlayerState extends ConsumerState<EpubPlayer> {
           bookmarkExists = location['bookmark']['exists'] ?? false;
           bookmarkCfi = location['bookmark']['cfi'] ?? '';
           writingMode = WritingModeEnum.fromCode(location['writingMode'] ?? '');
+          // A PDF (or any fixed-layout document) has one foliate-js section
+          // per physical page, so the section index is the real page number.
+          // A reflowable EPUB has no fixed page count: foliate-js reports a
+          // size-weighted "location" instead, which is the usual estimate for
+          // book-wide page progress.
+          final isDocument = supportsDocumentImages || region is Map;
+          final bookPageCurrent =
+              isDocument ? currentChapter : bookCurrentPage + 1;
+          final bookPageTotal =
+              isDocument ? totalChapters : bookTotalPages;
           readingProgress.value = ReaderProgress(
             percentage: percentage,
             chapterTitle: chapterTitle,
@@ -2066,6 +2076,9 @@ class EpubPlayerState extends ConsumerState<EpubPlayer> {
             totalChapters: totalChapters,
             currentPage: chapterCurrentPage,
             totalPages: chapterTotalPages,
+            bookPageCurrent: bookPageCurrent,
+            bookPageTotal: bookPageTotal,
+            isDocument: isDocument,
             chapters: readingProgress.value.chapters,
           );
           if (AnxPlatform.isMacOS) {
@@ -2847,6 +2860,22 @@ class EpubPlayerState extends ConsumerState<EpubPlayer> {
 
       final bookProgressWidget =
           Text('${(percentage * 100).toStringAsFixed(2)}%', style: textStyle);
+      final bookPageProgressWidget = Text(
+        readingProgress.value.bookPageProgress,
+        style: textStyle,
+      );
+      final chapterPercentProgressWidget = Text(
+        readingProgress.value.chapterPercentProgress,
+        style: textStyle,
+      );
+      final bookPageNumberWidget = Text(
+        readingProgress.value.bookPageNumber,
+        style: textStyle,
+      );
+      final bookRemainingPagesWidget = Text(
+        readingProgress.value.bookRemainingPages,
+        style: textStyle,
+      );
 
       final timeWidget = MinuteClock(textStyle: textStyle);
 
@@ -2880,6 +2909,14 @@ class EpubPlayerState extends ConsumerState<EpubPlayer> {
           return chapterPageProgressWidget;
         case ReadingInfoEnum.bookProgress:
           return bookProgressWidget;
+        case ReadingInfoEnum.bookPageProgress:
+          return bookPageProgressWidget;
+        case ReadingInfoEnum.chapterPercentProgress:
+          return chapterPercentProgressWidget;
+        case ReadingInfoEnum.bookPageNumber:
+          return bookPageNumberWidget;
+        case ReadingInfoEnum.bookRemainingPages:
+          return bookRemainingPagesWidget;
         case ReadingInfoEnum.battery:
           return batteryWidget();
         case ReadingInfoEnum.time:

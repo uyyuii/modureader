@@ -880,10 +880,12 @@ class _ReadingMoreSettingsState extends State<ReadingMoreSettings> {
               convertChinese(),
               const Divider(height: 15),
               codeHighlightTheme(),
-              const Divider(height: 15),
-              readingInfo(),
             ]),
           ),
+          // Reading info is Flutter chrome rather than foliate-js styling, so
+          // it is available for PDFs and other fixed-layout documents too.
+          const Divider(height: 15),
+          readingInfo(),
         ]),
       );
     }
@@ -914,10 +916,11 @@ class _ReadingMoreSettingsState extends State<ReadingMoreSettings> {
                     ReaderMenuGroup(
                         padding: const EdgeInsets.all(12),
                         child: codeHighlightTheme()),
-                    ReaderMenuGroup(
-                        padding: const EdgeInsets.all(12),
-                        child: readingInfo()),
                   ])),
+          // Reading info is rendered by Flutter, so fixed-layout documents
+          // can configure it just like reflowable EPUB books.
+          ReaderMenuGroup(
+              padding: const EdgeInsets.all(12), child: readingInfo()),
           // const Divider(height: 8),
           // bionicReading(),
         ],
