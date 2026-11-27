@@ -489,18 +489,19 @@ class _RemoteLibraryPageState extends ConsumerState<RemoteLibraryPage> {
         title: Text(ModuStrings.text(context, '文件库', 'Library')),
         actions: [
           IconButton(
-            tooltip: ModuStrings.text(context, '本地目录', 'Local folder'),
-            onPressed: _activeName == null
-                ? () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const LocalLibraryPage(),
-                      ),
-                    );
-                    if (mounted) await _connect();
-                  }
-                : null,
+            tooltip: ModuStrings.text(context, '浏览本地文件', 'Browse local files'),
+            onPressed: () async {
+              // Always available, even while a remote listing is in flight:
+              // this opens the device's own directory tree, not a remembered
+              // or previously authorised folder.
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const LocalLibraryPage(),
+                ),
+              );
+              if (mounted) await _connect();
+            },
             icon: const Icon(Icons.folder_open_outlined),
           ),
           IconButton(

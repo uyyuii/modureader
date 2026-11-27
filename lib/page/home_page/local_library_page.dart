@@ -1,21 +1,25 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:anx_reader/config/shared_preference_provider.dart';
-import 'package:anx_reader/dao/book.dart';
-import 'package:anx_reader/models/book.dart';
-import 'package:anx_reader/service/book.dart';
+import 'package:anx_reader/dao/database.dart';
+import 'package:anx_reader/providers/book_list.dart';
 import 'package:anx_reader/service/linked_books.dart';
 import 'package:anx_reader/service/library_files/linked_book_registry.dart';
-import 'package:anx_reader/utils/app_motion.dart';
 import 'package:anx_reader/utils/log/common.dart';
-import 'package:anx_reader/widgets/bookshelf/book_cover.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
-/// Browses a real directory as a library. Files are registered as linked
-/// books, so opening one never copies it into Modu's private storage.
+const String _groupByFolderKey = 'localBrowserGroupByFolder';
+
+/// Browses the phone's real directories and adds selected books in place.
+///
+/// Unlike the old "directory library", no root folder is remembered and no
+/// folder ever needs to be authorised again: with "All files access" granted
+/// once, any directory on the device can be opened. Books are registered via
+/// [LinkedBookRegistry.ensurePath], which keeps the original absolute path;
+/// nothing is staged, copied or imported.
 class LocalLibraryPage extends ConsumerStatefulWidget {
   const LocalLibraryPage({super.key});
 
@@ -23,12 +27,42 @@ class LocalLibraryPage extends ConsumerStatefulWidget {
   ConsumerState<LocalLibraryPage> createState() => _LocalLibraryPageState();
 }
 
-class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage> {
-  static const _rootKey = 'localDirectoryLibraryRoot';
-  String? _root;
+class _FsEntry {
+  const _FsEntry({
+    required this.path,
+    required this.name,
+    required this.isDirectory,
+    this.size = 0,
+    this.modified,
+  });
+
+  final String path;
+  final String name;
+  final bool isDirectory;
+  final int size;
+  final DateTime? modified;
+}
+
+class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
+    with WidgetsBindingObserver {
+  // A single long-press on a folder must not walk an unbounded tree.
+  static const int _maxFolderScan = 2000;
+
+  String _root = '';
+  String _current = '';
+  List<_FsEntry> _folders = const <_FsEntry>[];
+  List<_FsEntry> _books = const <_FsEntry>[];
   bool _loading = true;
   String? _error;
-  final Map<String, List<Book>> _groups = {};
+  bool _accessGranted = !Platform.isAndroid;
+  bool _checkingAccess = true;
+  bool _groupByFolder = false;
+  bool _scanning = false;
+  bool _adding = false;
+  int _progress = 0;
+  int _progressTotal = 0;
+  final Set<String> _selected = <String>{};
+  bool _selectionMode = false;
 
   bool get _zh => Localizations.localeOf(context).languageCode == 'zh';
   String _t(String zh, String en) => _zh ? zh : en;
@@ -36,310 +70,643 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage> {
   @override
   void initState() {
     super.initState();
-    _restoreRoot();
+    WidgetsBinding.instance.addObserver(this);
+    _groupByFolder = Prefs().prefs.getBool(_groupByFolderKey) ?? false;
+    unawaited(_boot());
   }
 
-  Future<void> _restoreRoot() async {
-    final root = Prefs().prefs.getString(_rootKey);
-    if (root == null || root.isEmpty) {
-      setState(() => _loading = false);
-      return;
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // The permission is granted in system settings; re-check on return.
+    if (state == AppLifecycleState.resumed && Platform.isAndroid) {
+      unawaited(_resume());
     }
-    _root = root;
-    await _scan();
   }
 
-  Future<bool> _ensureAndroidAccess() async {
+  Future<void> _boot() async {
+    final granted = await _checkAccess();
+    if (!granted || !mounted) return;
+    await _resolveRoot();
+    await _load();
+  }
+
+  Future<void> _resume() async {
+    final wasGranted = _accessGranted;
+    final granted = await _checkAccess();
+    if (granted && (!wasGranted || _root.isEmpty)) {
+      if (_root.isEmpty) await _resolveRoot();
+      await _load();
+    }
+  }
+
+  Future<bool> _checkAccess() async {
     if (!Platform.isAndroid) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _t(
-                '目录书库目前仅支持 Android。',
-                'The directory library currently supports Android only.',
-              ),
-            ),
-          ),
-        );
+        setState(() {
+          _checkingAccess = false;
+          _accessGranted = true;
+        });
       }
-      return false;
+      return true;
     }
-    if (await LinkedBooks.hasAllFilesAccess()) return true;
-    if (!mounted) return false;
-    final openSettings = await showDialog<bool>(
-      animationStyle: AppMotion.style,
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(_t('需要“所有文件访问权限”', 'All files access required')),
-        content: Text(
-          _t(
-            '目录书库直接读取原文件，不复制到应用内，因此需要“所有文件访问权限”。请在系统设置中为默读开启后重试。',
-            'The directory library reads original files in place, so Modu needs the “All files access” permission. Enable it in system settings and try again.',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(_t('取消', 'Cancel')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(_t('去设置', 'Open settings')),
-          ),
-        ],
-      ),
-    );
-    if (openSettings == true) await LinkedBooks.requestAllFilesAccess();
-    return false;
+    var granted = false;
+    try {
+      granted = await LinkedBooks.hasAllFilesAccess();
+    } catch (_) {
+      granted = false;
+    }
+    if (mounted) {
+      setState(() {
+        _checkingAccess = false;
+        _accessGranted = granted;
+      });
+    }
+    return granted;
   }
 
-  Future<void> _pickRoot() async {
-    if (!await _ensureAndroidAccess()) return;
-    final path = await FilePicker.platform.getDirectoryPath();
-    if (path == null || !mounted) return;
-    if (!await Directory(path).exists()) {
-      setState(
-        () => _error = _t('无法访问所选目录', 'Selected directory is unavailable'),
-      );
+  Future<void> _resolveRoot() async {
+    if (!Platform.isAndroid) {
+      _root = Directory.current.path;
+      _current = _root;
       return;
     }
-    _root = path;
-    await Prefs().prefs.setString(_rootKey, path);
-    await _scan();
+    var found = '';
+    for (final candidate in <String>['/storage/emulated/0', '/sdcard']) {
+      try {
+        if (await Directory(candidate).exists()) {
+          found = candidate;
+          break;
+        }
+      } catch (_) {
+        // A restricted mount must not hide the other candidates.
+      }
+    }
+    _root = found.isEmpty ? '/storage/emulated/0' : found;
+    _current = _root;
   }
 
-  Future<void> _scan() async {
-    final root = _root;
-    if (root == null) return;
+  bool get _canGoUp => _root.isNotEmpty && _current != _root;
+
+  Future<void> _load({String? path}) async {
+    final target = path ?? _current;
+    if (target.isEmpty || !mounted) return;
     setState(() {
       _loading = true;
       _error = null;
     });
-    final groups = <String, List<Book>>{};
+    final folders = <_FsEntry>[];
+    final books = <_FsEntry>[];
     var skipped = 0;
+    String? loadError;
     try {
-      final directory = Directory(root);
+      final directory = Directory(target);
       if (!await directory.exists()) {
-        throw FileSystemException('Directory missing', root);
+        throw FileSystemException('Directory missing', target);
       }
-      final paths = <String>[];
-      await for (final entity in directory.list(
-        recursive: true,
-        followLinks: false,
-      )) {
+      await for (final entity in directory.list(followLinks: false)) {
+        final name = p.basename(entity.path);
+        if (name.startsWith('.')) continue;
+        try {
+          if (entity is Directory) {
+            folders.add(_FsEntry(
+                path: entity.path, name: name, isDirectory: true));
+          } else if (entity is File) {
+            final extension =
+                p.extension(name).replaceFirst('.', '').toLowerCase();
+            if (!LinkedBooks.extensions.contains(extension)) continue;
+            final stat = await entity.stat();
+            books.add(_FsEntry(
+              path: entity.path,
+              name: name,
+              isDirectory: false,
+              size: stat.size,
+              modified: stat.modified,
+            ));
+          }
+        } catch (_) {
+          skipped++;
+        }
+      }
+    } catch (error) {
+      loadError = _t('无法读取此目录：$error', 'Cannot read this folder: $error');
+    }
+    folders.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    books.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    if (!mounted) return;
+    setState(() {
+      _current = target;
+      _folders = folders;
+      _books = books;
+      _loading = false;
+      if (loadError != null) {
+        _error = loadError;
+      } else if (skipped > 0) {
+        _error = _t('$skipped 个条目无法访问，已跳过。',
+            '$skipped items could not be accessed and were skipped.');
+      }
+    });
+  }
+
+  void _enter(_FsEntry folder) {
+    if (_adding || _scanning) return;
+    // Keep the pending selection: books from several folders can be added in
+    // one pass, or one folder at a time on consecutive passes.
+    unawaited(_load(path: folder.path));
+  }
+
+  void _goUp() {
+    if (!_canGoUp || _adding || _scanning) return;
+    final parent = p.dirname(_current);
+    if (parent == _current) return;
+    unawaited(_load(path: parent));
+  }
+
+  void _goRoot() {
+    if (_adding || _scanning || _root.isEmpty) return;
+    unawaited(_load(path: _root));
+  }
+
+  Future<void> _selectFolder(_FsEntry folder) async {
+    if (_scanning || _adding) return;
+    setState(() => _scanning = true);
+    final found = <String>[];
+    try {
+      await for (final entity in Directory(folder.path)
+          .list(recursive: true, followLinks: false)) {
+        if (found.length >= _maxFolderScan) break;
         if (entity is! File) continue;
         final name = p.basename(entity.path);
         if (name.startsWith('.')) continue;
-        final extension = p.extension(name).replaceFirst('.', '').toLowerCase();
+        final extension =
+            p.extension(name).replaceFirst('.', '').toLowerCase();
         if (!LinkedBooks.extensions.contains(extension)) continue;
-        paths.add(entity.path);
+        found.add(entity.path);
       }
-      paths.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    } catch (error) {
+      AnxLog.warning('Local browser folder scan failed: $error');
+    }
+    if (!mounted) return;
+    setState(() {
+      _scanning = false;
+      _selectionMode = true;
+      _selected.addAll(found);
+    });
+    _toast(found.length >= _maxFolderScan
+        ? _t('文件夹较大，已选取前 $_maxFolderScan 本书',
+            'Large folder: selected the first $_maxFolderScan books')
+        : _t('已选取 ${found.length} 本书', 'Selected ${found.length} books'));
+  }
+
+  void _toggle(String path) {
+    if (_adding) return;
+    setState(() {
+      if (!_selected.remove(path)) _selected.add(path);
+      _selectionMode = _selected.isNotEmpty;
+    });
+  }
+
+  void _selectAllHere() {
+    if (_adding) return;
+    setState(() {
+      _selected.addAll(_books.map((entry) => entry.path));
+      _selectionMode = _selected.isNotEmpty;
+    });
+  }
+
+  void _clearSelection() {
+    setState(() {
+      _selected.clear();
+      _selectionMode = false;
+    });
+  }
+
+  // No context access here: this runs inside an async add loop.
+  String _folderLabel(String path, String rootLabel) {
+    final parent = p.dirname(path);
+    var name = parent == _root ? rootLabel : p.basename(parent);
+    if (name.isEmpty || name == '.' || name == Platform.pathSeparator) {
+      name = rootLabel;
+    }
+    // tb_groups.name is capped at 100 characters by the DAO.
+    return name.length > 100 ? name.substring(0, 100) : name;
+  }
+
+  Future<int?> _existingGroupId(String name) async {
+    try {
+      final db = await DBHelper().database;
+      final rows = await db.query(
+        'tb_groups',
+        columns: <String>['id'],
+        where: 'name = ? AND is_deleted = 0',
+        whereArgs: <Object?>[name],
+        limit: 1,
+      );
+      if (rows.isEmpty) return null;
+      return int.tryParse(rows.first['id'].toString());
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _addSelected() async {
+    if (_adding || _selected.isEmpty || !mounted) return;
+    if (!Platform.isAndroid) {
+      _toast(_t('原位添加仅支持 Android 设备。',
+          'In-place adding is supported on Android only.'));
+      return;
+    }
+    if (!await LinkedBooks.hasAllFilesAccess()) {
+      _toast(_t('请先授予“所有文件访问权限”。',
+          'Grant “All files access” first.'));
+      await _checkAccess();
+      return;
+    }
+
+    // Cache locale-dependent strings before entering the await loop so no
+    // BuildContext is touched after an async gap.
+    final bool isZh = _zh;
+    final rootLabel = isZh ? '手机存储' : 'Phone storage';
+    final paths = _selected.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    setState(() {
+      _adding = true;
+      _progress = 0;
+      _progressTotal = paths.length;
+    });
+
+    var added = 0;
+    var skipped = 0;
+    var failed = 0;
+    // Only newly inserted books are moved into folders: re-adding a book that
+    // is already on the shelf must never silently change its existing folder.
+    final newIdsByFolder = <String, List<int>>{};
+    try {
       final known = await LinkedBookRegistry.booksByPath();
+      final existingIds = known.values.map((book) => book.id).toSet();
       for (final path in paths) {
         try {
-          final book = await LinkedBookRegistry.ensurePath(
-            path,
-            knownBooks: known,
-          );
-          var relative = p.relative(p.dirname(path), from: root);
-          if (relative == '.') relative = '';
-          final label = relative.isEmpty
-              ? _t('根目录', 'Root')
-              : relative.replaceAll(Platform.pathSeparator, ' / ');
-          groups.putIfAbsent(label, () => []).add(book);
+          final book = await LinkedBookRegistry.ensurePath(path,
+              knownBooks: known);
+          if (!existingIds.contains(book.id)) {
+            added++;
+            if (_groupByFolder) {
+              newIdsByFolder
+                  .putIfAbsent(_folderLabel(path, rootLabel), () => <int>[])
+                  .add(book.id);
+            }
+          } else {
+            skipped++;
+          }
         } catch (error) {
-          skipped++;
-          AnxLog.warning('Directory library skipped $path: $error');
+          failed++;
+          AnxLog.warning('Local browser could not add $path: $error');
+        }
+        if (mounted) {
+          setState(() => _progress++);
         }
       }
-      if (!mounted) return;
-      setState(() {
-        _groups
-          ..clear()
-          ..addAll(groups);
-        _loading = false;
-        if (skipped > 0) {
-          _error = _t(
-            '$skipped 个文件无法读取，已跳过。',
-            '$skipped files could not be read and were skipped.',
-          );
-        }
-      });
+      await ref.read(bookListProvider.notifier).refresh();
+      for (final entry in newIdsByFolder.entries) {
+        final groupId = await _existingGroupId(entry.key);
+        await ref.read(bookListProvider.notifier).moveBooksToFolder(
+              entry.value,
+              groupId: groupId,
+              newFolderName: groupId == null ? entry.key : null,
+            );
+      }
+      if (newIdsByFolder.isNotEmpty) {
+        await ref.read(bookListProvider.notifier).refresh();
+      }
     } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = _t('目录扫描失败：$error', 'Directory scan failed: $error');
-      });
+      failed += paths.length - _progress;
+      AnxLog.warning('Local browser add failed: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _adding = false;
+          _selected.clear();
+          _selectionMode = false;
+        });
+        final zhText = '已添加 $added 本' +
+            (skipped > 0 ? '，已在书架 $skipped 本' : '') +
+            (failed > 0 ? '，失败 $failed 本' : '');
+        final enText = 'Added $added books' +
+            (skipped > 0 ? ', $skipped already on the shelf' : '') +
+            (failed > 0 ? ', $failed failed' : '');
+        _toast(isZh ? zhText : enText);
+        // Stay on this page: the next folder can be added right away.
+      }
     }
   }
 
-  Future<void> _open(Book book) async {
-    await pushToReadingPage(ref, context, book);
+  void _toast(String message) {
     if (!mounted) return;
-    // Reading writes progress to the database; refresh just this row.
-    try {
-      final latest = await bookDao.selectBookById(book.id);
-      if (!mounted) return;
-      setState(() {
-        for (final list in _groups.values) {
-          final index = list.indexWhere((item) => item.id == latest.id);
-          if (index != -1) list[index] = latest;
-        }
-      });
-    } catch (_) {
-      // The row may have been deleted while reading; the next scan reconciles.
-    }
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+          content: Text(message), duration: const Duration(seconds: 3)));
   }
 
-  String _status(Book book) {
-    if (book.readingPercentage >= 0.98) {
-      return _t('已读完', 'Finished');
+  String _sizeLabel(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
     }
-    if (book.lastReadPosition.isNotEmpty || book.readingPercentage > 0.02) {
-      return _t(
-        '阅读中 ${(book.readingPercentage * 100).round()}%',
-        'Reading ${(book.readingPercentage * 100).round()}%',
-      );
-    }
-    return _t('未读', 'Unread');
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  String _dateLabel(DateTime? value) {
+    if (value == null) return '';
+    final local = value.toLocal();
+    String two(int number) => number.toString().padLeft(2, '0');
+    return '${local.year}-${two(local.month)}-${two(local.day)}';
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_t('本地文件库', 'Local library')),
-        actions: [
-          IconButton(
-            tooltip: _t('选择目录', 'Choose directory'),
-            onPressed: _pickRoot,
-            icon: const Icon(Icons.folder_open_outlined),
-          ),
-          IconButton(
-            tooltip: _t('刷新', 'Refresh'),
-            onPressed: _loading ? null : _scan,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
+    return PopScope(
+      canPop: !_selectionMode && !_adding,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && !_adding && mounted) _clearSelection();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(_current.isEmpty || _current == _root
+              ? _t('浏览本地文件', 'Browse local files')
+              : p.basename(_current)),
+          actions: <Widget>[
+            IconButton(
+              tooltip: _t('返回存储根目录', 'Go to storage root'),
+              onPressed: _adding || _root.isEmpty ? null : _goRoot,
+              icon: const Icon(Icons.sd_storage_outlined),
+            ),
+            IconButton(
+              tooltip: _t('上一级', 'Parent folder'),
+              onPressed: _canGoUp && !_adding ? _goUp : null,
+              icon: const Icon(Icons.arrow_upward_outlined),
+            ),
+            IconButton(
+              tooltip: _t('刷新', 'Refresh'),
+              onPressed: _loading || _adding ? null : () => unawaited(_load()),
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        bottomNavigationBar: _selectionMode ? _buildActionBar() : null,
+        body: _buildBody(),
       ),
-      body: _buildBody(),
     );
   }
 
   Widget _buildBody() {
+    if (_checkingAccess) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (!_accessGranted) return _buildAccessGate();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _buildPathBar(),
+        if (_scanning || _adding)
+          LinearProgressIndicator(
+            value: _adding && _progressTotal > 0
+                ? _progress / _progressTotal
+                : null,
+          ),
+        Expanded(child: _buildList()),
+      ],
+    );
+  }
+
+  Widget _buildAccessGate() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const Icon(Icons.folder_off_outlined, size: 56),
+            const SizedBox(height: 12),
+            Text(
+              _t(
+                '浏览本地文件需要“所有文件访问权限”。授权一次即可浏览手机上任意目录，不必逐个文件夹重新授权；原书不会被复制或修改。',
+                'Browsing local files needs “All files access”. Grant it once to browse any folder on the device without authorising folders one by one. Originals are never copied or modified.',
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: () async {
+                await LinkedBooks.requestAllFilesAccess();
+              },
+              child: Text(_t('去设置', 'Open settings')),
+            ),
+            TextButton(
+              onPressed: () async {
+                final granted = await _checkAccess();
+                if (granted && _root.isEmpty) await _resolveRoot();
+                if (granted) await _load();
+              },
+              child: Text(_t('已授权，重试', 'I granted it, retry')),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPathBar() {
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          InkWell(
+            onTap: _goRoot,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
+              child: Text(
+                _current,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
+            child: Text(
+              _t(
+                '点文件夹进入浏览；轻点或长按书籍选取，长按文件夹可整夹选取。添加后不会退出，可继续添加下一个文件夹。所有书籍直接读取原文件。',
+                'Tap a folder to browse; tap or long-press books to select, long-press a folder to select the whole folder. Stay here after adding to pick the next folder. Every book is read directly from its original file.',
+              ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: Theme.of(context).hintColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildList() {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_root == null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.folder_open, size: 56),
-              const SizedBox(height: 12),
-              Text(
-                _t(
-                  '选择一个存放书籍的目录，默读会直接读取原文件，不复制、不导入。',
-                  'Choose a book folder. Modu reads the originals directly without copying or importing them.',
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: _pickRoot,
-                child: Text(_t('选择目录', 'Choose directory')),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    final children = <Widget>[];
-    if (_error != null) {
-      children.add(
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Text(
-            _error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
-        ),
-      );
-    }
-    if (_groups.isEmpty && _error == null) {
-      children.add(
-        Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            _t('目录中没有支持的书籍文件。', 'No supported book files in this directory.'),
-          ),
-        ),
-      );
-    }
-    for (final entry in _groups.entries) {
-      children.add(
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
-          child: Text(
-            entry.key,
-            style: Theme.of(context).textTheme.titleSmall
-                ?.copyWith(color: Theme.of(context).colorScheme.primary),
-          ),
-        ),
-      );
-      children.addAll(entry.value.map(_buildBookRow));
-    }
-    children.add(SizedBox(height: 24 + MediaQuery.paddingOf(context).bottom));
-    return ListView(children: children);
+    final folderCount = _folders.length;
+    final bookCount = _books.length;
+    return ListView.builder(
+      padding: EdgeInsets.only(bottom: 16 + MediaQuery.paddingOf(context).bottom),
+      itemCount: folderCount + bookCount + 2,
+      itemBuilder: (context, index) {
+        if (index == 0) {
+          if (_error == null) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+            child: Text(
+              _error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          );
+        }
+        final item = index - 1;
+        if (item == folderCount + bookCount) {
+          if (_error != null || folderCount + bookCount > 0) {
+            return const SizedBox.shrink();
+          }
+          return Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(_t(
+                '此目录没有子文件夹或支持的书籍文件（EPUB、PDF、MOBI、AZW3、FB2）。',
+                'No subfolders or supported books (EPUB, PDF, MOBI, AZW3, FB2) here.')),
+          );
+        }
+        if (item < folderCount) {
+          return _folderTile(_folders[item]);
+        }
+        return _bookTile(_books[item - folderCount]);
+      },
+    );
   }
 
-  Widget _buildBookRow(Book book) {
-    final progress = book.readingPercentage.clamp(0.0, 1.0).toDouble();
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+  Widget _folderTile(_FsEntry entry) {
+    return ListTile(
+      key: ValueKey<String>('d:${entry.path}'),
+      leading: const Icon(Icons.folder_outlined),
+      title: Text(entry.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(_t('文件夹 · 长按选取整夹', 'Folder · long-press to select all'),
+          style: Theme.of(context).textTheme.bodySmall),
+      onTap: () => _enter(entry),
+      onLongPress: () => unawaited(_selectFolder(entry)),
+    );
+  }
+
+  Widget _bookTile(_FsEntry entry) {
+    final selected = _selected.contains(entry.path);
+    final date = _dateLabel(entry.modified);
+    return ListTile(
+      key: ValueKey<String>('f:${entry.path}'),
+      leading: Icon(selected ? Icons.check_circle : Icons.book_outlined,
+          color: selected ? Theme.of(context).colorScheme.primary : null),
+      title: Text(entry.name, maxLines: 2, overflow: TextOverflow.ellipsis),
+      subtitle: Text(
+        '${_sizeLabel(entry.size)}  ·  $date',
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      selected: selected,
+      onTap: () => _toggle(entry.path),
+      onLongPress: () => _toggle(entry.path),
+    );
+  }
+
+  Widget _buildActionBar() {
+    final count = _selected.length;
+    return SafeArea(
       child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(10),
-          onTap: () => _open(book),
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 44,
-                  height: 64,
-                  child: BookCover(book: book, radius: 4),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        book.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _status(book),
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      const SizedBox(height: 6),
-                      LinearProgressIndicator(value: progress, minHeight: 3),
-                    ],
+        elevation: 6,
+        color: Theme.of(context).colorScheme.surfaceContainerHigh,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      _t('已选 $count 本', '$count books selected'),
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(Icons.chevron_right, size: 20),
-              ],
-            ),
+                  TextButton(
+                    onPressed: _adding ? null : _selectAllHere,
+                    child: Text(_t('全选本目录', 'Select all here')),
+                  ),
+                  TextButton(
+                    onPressed: _adding ? null : _clearSelection,
+                    child: Text(_t('清空', 'Clear')),
+                  ),
+                ],
+              ),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          _t('按文件夹名称生成书架文件夹',
+                              'Create a shelf folder per source folder'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          _t('勾选后，每个来源文件夹会在书架生成同名文件夹',
+                              'When on, each source folder becomes a same-named shelf folder'),
+                          style: Theme.of(context).textTheme.bodySmall,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: _groupByFolder,
+                    onChanged: _adding
+                        ? null
+                        : (bool value) {
+                            setState(() => _groupByFolder = value);
+                            unawaited(
+                                Prefs().prefs.setBool(_groupByFolderKey, value));
+                          },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: _adding || count == 0
+                    ? null
+                    : () => unawaited(_addSelected()),
+                icon: _adding
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.add_to_photos_outlined),
+                label: Text(_adding
+                    ? _t('正在添加 $_progress/$_progressTotal …',
+                        'Adding $_progress/$_progressTotal …')
+                    : _t('加入书架（$count）', 'Add to bookshelf ($count)')),
+              ),
+            ],
           ),
         ),
       ),

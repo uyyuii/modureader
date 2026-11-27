@@ -698,7 +698,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                   PopupMenuItem(
                       value: 4,
                       child: Text(ModuStrings.text(context,
-                          '浏览目录加入书架（不导入）', 'Browse folder, add in place'))),
+                          '浏览本地文件添加（不导入）', 'Browse local files (add in place)'))),
                   // The legacy copy-based importer stays available behind a
                   // setting because TXT/Markdown/UMD still need conversion.
                   if (!Prefs().hideLegacyImport) ...[
