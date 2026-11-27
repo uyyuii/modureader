@@ -444,12 +444,12 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
             IconButton(
               tooltip: _t('返回存储根目录', 'Go to storage root'),
               onPressed: _adding || _root.isEmpty ? null : _goRoot,
-              icon: const Icon(Icons.sd_storage_outlined),
+              icon: const Icon(Icons.folder_open_outlined),
             ),
             IconButton(
               tooltip: _t('上一级', 'Parent folder'),
               onPressed: _canGoUp && !_adding ? _goUp : null,
-              icon: const Icon(Icons.arrow_upward_outlined),
+              icon: const Icon(Icons.arrow_upward),
             ),
             IconButton(
               tooltip: _t('刷新', 'Refresh'),
@@ -491,7 +491,7 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Icon(Icons.folder_off_outlined, size: 56),
+            const Icon(Icons.folder_open, size: 56),
             const SizedBox(height: 12),
             Text(
               _t(
@@ -612,7 +612,7 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
     final date = _dateLabel(entry.modified);
     return ListTile(
       key: ValueKey<String>('f:${entry.path}'),
-      leading: Icon(selected ? Icons.check_circle : Icons.book_outlined,
+      leading: Icon(selected ? Icons.check_circle : Icons.book,
           color: selected ? Theme.of(context).colorScheme.primary : null),
       title: Text(entry.name, maxLines: 2, overflow: TextOverflow.ellipsis),
       subtitle: Text(
@@ -700,7 +700,7 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.add_to_photos_outlined),
+                    : const Icon(Icons.add),
                 label: Text(_adding
                     ? _t('正在添加 $_progress/$_progressTotal …',
                         'Adding $_progress/$_progressTotal …')
