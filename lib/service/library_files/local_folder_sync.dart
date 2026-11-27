@@ -204,8 +204,12 @@ class LocalFolderSync {
         // Imported copies live in the app's private directory and are not
         // sources for incremental sync; only original-path links count.
         if (!LinkedBooks.isLinked(book.filePath)) continue;
-        final full = book.fileFullPath;
-        if (full.isEmpty || !p.isAbsolute(full)) continue;
+        // Only use a link that resolves to a real original path. A stale link
+        // would fall back to an app-private pseudo path, and treating that
+        // directory as a source could re-register imported copies as new
+        // books. If links were not restored, show no candidates instead.
+        final full = LinkedBooks.resolve(book.filePath);
+        if (full == null || full.isEmpty || !p.isAbsolute(full)) continue;
         final parent = p.dirname(full);
         final counts = inferred.putIfAbsent(parent, () => <int, int>{});
         counts[book.groupId] = (counts[book.groupId] ?? 0) + 1;
