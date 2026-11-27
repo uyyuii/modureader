@@ -3,10 +3,14 @@ import 'dart:io';
 
 import 'package:anx_reader/config/shared_preference_provider.dart';
 import 'package:anx_reader/dao/database.dart';
+import 'package:anx_reader/page/home_page/remote_library_page.dart';
 import 'package:anx_reader/providers/book_list.dart';
 import 'package:anx_reader/service/linked_books.dart';
 import 'package:anx_reader/service/library_files/linked_book_registry.dart';
 import 'package:anx_reader/utils/log/common.dart';
+import 'package:anx_reader/widgets/bookshelf/local_folder_sync_sheet.dart';
+import 'package:anx_reader/widgets/home_navigation_metrics.dart';
+import 'package:anx_reader/widgets/home_navigation_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
@@ -64,6 +68,24 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
   final Set<String> _selected = <String>{};
   bool _selectionMode = false;
 
+  // When this page is the "Library" tab, the navigation shell owns the system
+  // back gesture. Register a handler with it so a selection mode is dismissed
+  // before the shell switches back to the bookshelf. Standalone pushed pages
+  // keep using their own PopScope below.
+  final Object _backToken = Object();
+  HomeBackRegistrar? _registerBack;
+
+  bool get _shellOwnsBack => _registerBack != null;
+
+  bool _consumeBack() {
+    if (_adding || _scanning) return true;
+    if (_selectionMode) {
+      _clearSelection();
+      return true;
+    }
+    return false;
+  }
+
   bool get _zh => Localizations.localeOf(context).languageCode == 'zh';
   String _t(String zh, String en) => _zh ? zh : en;
 
@@ -76,7 +98,15 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _registerBack = HomeBackDispatcher.of(context);
+    _registerBack?.call(_backToken, _consumeBack);
+  }
+
+  @override
   void dispose() {
+    _registerBack?.call(_backToken, null);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -286,6 +316,26 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
     });
   }
 
+  Future<void> _openSyncSheet() async {
+    if (_adding || _scanning) return;
+    final changed = await showLocalFolderSyncSheet(
+      context,
+      currentPath: _current,
+    );
+    if (changed && mounted) await _load();
+  }
+
+  Future<void> _openWebdav() async {
+    if (_adding) return;
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => const RemoteLibraryPage(),
+      ),
+    );
+    if (mounted) await _load();
+  }
+
   // No context access here: this runs inside an async add loop.
   String _folderLabel(String path, String rootLabel) {
     final parent = p.dirname(path);
@@ -430,31 +480,60 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
 
   @override
   Widget build(BuildContext context) {
+    // As a home tab the shell owns back; as a pushed route this page does.
+    final shellOwnsBack = _shellOwnsBack;
     return PopScope(
-      canPop: !_selectionMode && !_adding,
+      canPop: shellOwnsBack ? true : !_selectionMode && !_adding,
       onPopInvokedWithResult: (didPop, result) {
+        if (shellOwnsBack) return;
         if (!didPop && !_adding && mounted) _clearSelection();
       },
       child: Scaffold(
         appBar: AppBar(
           title: Text(_current.isEmpty || _current == _root
-              ? _t('浏览本地文件', 'Browse local files')
+              ? _t('文件库 · 手机目录', 'Library · Phone files')
               : p.basename(_current)),
           actions: <Widget>[
             IconButton(
-              tooltip: _t('返回存储根目录', 'Go to storage root'),
-              onPressed: _adding || _root.isEmpty ? null : _goRoot,
-              icon: const Icon(Icons.folder_open_outlined),
+              tooltip: _t('同步新增书籍', 'Sync new books'),
+              onPressed: _loading || _adding || _scanning
+                  ? null
+                  : () => unawaited(_openSyncSheet()),
+              icon: const Icon(Icons.sync),
+            ),
+            IconButton(
+              tooltip: _t('WebDAV 书库', 'WebDAV library'),
+              onPressed: _adding ? null : () => unawaited(_openWebdav()),
+              icon: const Icon(Icons.cloud_outlined),
             ),
             IconButton(
               tooltip: _t('上一级', 'Parent folder'),
               onPressed: _canGoUp && !_adding ? _goUp : null,
               icon: const Icon(Icons.arrow_upward),
             ),
-            IconButton(
-              tooltip: _t('刷新', 'Refresh'),
-              onPressed: _loading || _adding ? null : () => unawaited(_load()),
-              icon: const Icon(Icons.refresh),
+            PopupMenuButton<int>(
+              icon: const Icon(Icons.more_vert),
+              tooltip: _t('更多', 'More'),
+              onSelected: (int value) {
+                if (value == 0) _goRoot();
+                if (value == 1) unawaited(_load());
+                if (value == 2) unawaited(_openSyncSheet());
+              },
+              itemBuilder: (context) => <PopupMenuEntry<int>>[
+                PopupMenuItem<int>(
+                  value: 0,
+                  child: Text(_t('返回存储根目录', 'Go to storage root')),
+                ),
+                PopupMenuItem<int>(
+                  value: 1,
+                  child: Text(_t('刷新', 'Refresh')),
+                ),
+                PopupMenuItem<int>(
+                  value: 2,
+                  child: Text(_t('管理同步文件夹 / 绑定当前目录',
+                      'Manage sync folders / bind current')),
+                ),
+              ],
             ),
           ],
         ),
@@ -543,8 +622,8 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
             padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
             child: Text(
               _t(
-                '点文件夹进入浏览；轻点或长按书籍选取，长按文件夹可整夹选取。添加后不会退出，可继续添加下一个文件夹。所有书籍直接读取原文件。',
-                'Tap a folder to browse; tap or long-press books to select, long-press a folder to select the whole folder. Stay here after adding to pick the next folder. Every book is read directly from its original file.',
+                '点文件夹进入浏览；轻点或长按书籍选取，长按文件夹可整夹选取。添加后不会退出，可继续添加下一个文件夹。顶栏的同步按钮可一键把各文件夹新增的书放进对应的书架文件夹。所有书籍直接读取原文件。',
+                'Tap a folder to browse; tap or long-press books to select, long-press a folder to select the whole folder. Stay here after adding to pick the next folder. The sync button in the app bar adds newly arrived books to their matching shelf folders in one tap. Every book is read directly from its original file.',
               ),
               style: Theme.of(context).textTheme.bodySmall
                   ?.copyWith(color: Theme.of(context).hintColor),
@@ -562,7 +641,11 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
     final folderCount = _folders.length;
     final bookCount = _books.length;
     return ListView.builder(
-      padding: EdgeInsets.only(bottom: 16 + MediaQuery.paddingOf(context).bottom),
+      padding: EdgeInsets.only(
+        bottom: 16 +
+            MediaQuery.paddingOf(context).bottom +
+            HomeNavigationClearance.of(context),
+      ),
       itemCount: folderCount + bookCount + 2,
       itemBuilder: (context, index) {
         if (index == 0) {
@@ -632,7 +715,9 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
         elevation: 6,
         color: Theme.of(context).colorScheme.surfaceContainerHigh,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          // Reserve the floating home bar's height when this page is a tab.
+          padding: EdgeInsets.fromLTRB(
+              16, 8, 16, 12 + HomeNavigationClearance.of(context)),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,

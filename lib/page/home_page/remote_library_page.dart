@@ -7,7 +7,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:anx_reader/models/book.dart';
-import 'package:anx_reader/page/home_page/local_library_page.dart';
 import 'package:anx_reader/page/settings_page/remote_library.dart';
 import 'package:anx_reader/providers/book_list.dart';
 import 'package:anx_reader/service/book.dart';
@@ -486,24 +485,8 @@ class _RemoteLibraryPageState extends ConsumerState<RemoteLibraryPage> {
     final visible = _visibleEntries;
     return Scaffold(
       appBar: AppBar(
-        title: Text(ModuStrings.text(context, '文件库', 'Library')),
+        title: Text(ModuStrings.text(context, 'WebDAV 书库', 'WebDAV library')),
         actions: [
-          IconButton(
-            tooltip: ModuStrings.text(context, '浏览本地文件', 'Browse local files'),
-            onPressed: () async {
-              // Always available, even while a remote listing is in flight:
-              // this opens the device's own directory tree, not a remembered
-              // or previously authorised folder.
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const LocalLibraryPage(),
-                ),
-              );
-              if (mounted) await _connect();
-            },
-            icon: const Icon(Icons.folder_open_outlined),
-          ),
           IconButton(
             tooltip: t('导入当前文件夹', 'Import current folder'),
             onPressed:

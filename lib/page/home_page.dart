@@ -7,8 +7,8 @@ import 'package:anx_reader/enums/sync_direction.dart';
 import 'package:anx_reader/enums/sync_trigger.dart';
 import 'package:anx_reader/l10n/generated/L10n.dart';
 import 'package:anx_reader/page/home_page/bookshelf_page.dart';
+import 'package:anx_reader/page/home_page/local_library_page.dart';
 import 'package:anx_reader/page/home_page/notes_page.dart';
-import 'package:anx_reader/page/home_page/remote_library_page.dart';
 import 'package:anx_reader/page/home_page/settings_page.dart';
 import 'package:anx_reader/page/home_page/statistics_page.dart';
 import 'package:anx_reader/providers/sync.dart';
@@ -129,7 +129,9 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Widget _buildPage(String identifier, ScrollController? controller) {
     return switch (identifier) {
-      HomeNavigationDestination.remoteLibrary => const RemoteLibraryPage(),
+      // The "Library" tab is the phone's own directory tree. WebDAV is a
+      // separate page reachable from that tab's app bar icon.
+      HomeNavigationDestination.remoteLibrary => const LocalLibraryPage(),
       HomeNavigationDestination.statistics =>
         StatisticPage(controller: controller),
       HomeNavigationDestination.ai => AiChatStream(),

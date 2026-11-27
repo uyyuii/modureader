@@ -23,6 +23,32 @@ typedef HomeNavigationPageBuilder = Widget Function(
   ScrollController? controller,
 );
 
+/// A tab page's own back handler. Return true when the page consumed the
+/// gesture (for example by leaving its selection mode); the shell must then
+/// stay on that tab instead of jumping to the bookshelf.
+typedef HomeBackHandler = bool Function();
+typedef HomeBackRegistrar = void Function(Object token, HomeBackHandler? handler);
+
+/// Lets the current tab page take the system back gesture before the shell
+/// turns it into "go to the bookshelf". Pages pushed as their own routes do
+/// not see this widget and keep handling back themselves.
+class HomeBackDispatcher extends InheritedWidget {
+  const HomeBackDispatcher({
+    super.key,
+    required this.register,
+    required super.child,
+  });
+
+  final HomeBackRegistrar register;
+
+  static HomeBackRegistrar? of(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<HomeBackDispatcher>()
+      ?.register;
+
+  @override
+  bool updateShouldNotify(covariant HomeBackDispatcher oldWidget) => false;
+}
+
 /// One home navigation destination.
 ///
 /// [identifier] is stable across rebuilds, so hiding or showing a destination
@@ -64,6 +90,23 @@ class _HomeNavigationShellState extends State<HomeNavigationShell> {
   EdgeInsets? _homeViewPadding;
   Size? _homeViewport;
   bool _holdingSystemInsets = false;
+
+  Object? _backToken;
+  HomeBackHandler? _tabBackHandler;
+
+  void _registerTabBack(Object token, HomeBackHandler? handler) {
+    if (handler == null) {
+      // An outgoing tab must not clear a handler registered by the incoming
+      // one, hence the token check.
+      if (_backToken == token) {
+        _backToken = null;
+        _tabBackHandler = null;
+      }
+      return;
+    }
+    _backToken = token;
+    _tabBackHandler = handler;
+  }
 
   MediaQueryData _stableHomeInsets(MediaQueryData media, bool isCurrent) {
     final previous = _homeViewport;
@@ -172,12 +215,15 @@ class _HomeNavigationShellState extends State<HomeNavigationShell> {
 
   @override
   Widget build(BuildContext context) {
-    return MediaQuery(
-      data: _stableHomeInsets(
-        MediaQuery.of(context),
-        ModalRoute.isCurrentOf(context) ?? true,
+    return HomeBackDispatcher(
+      register: _registerTabBack,
+      child: MediaQuery(
+        data: _stableHomeInsets(
+          MediaQuery.of(context),
+          ModalRoute.isCurrentOf(context) ?? true,
+        ),
+        child: _buildNavigation(),
       ),
-      child: _buildNavigation(),
     );
   }
 
@@ -213,6 +259,10 @@ class _HomeNavigationShellState extends State<HomeNavigationShell> {
           canPop: onBookshelf,
           onPopInvokedWithResult: (didPop, result) {
             if (didPop || onBookshelf || !mounted) return;
+            // A tab page with its own transient state (a multi-select mode)
+            // gets the first chance to consume the gesture.
+            final handler = _tabBackHandler;
+            if (handler != null && handler()) return;
             setState(() {
               _currentTab = HomeNavigationDestination.bookshelf;
             });
