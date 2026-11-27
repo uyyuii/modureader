@@ -68,19 +68,36 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
   final Set<String> _selected = <String>{};
   bool _selectionMode = false;
 
+  // The folders visited on the way to the current one. Back walks this stack,
+  // so several quick back gestures move up several levels even while the
+  // directory listing is still loading.
+  final List<String> _history = <String>[];
+  // Only the newest directory listing may write state. Otherwise a slower,
+  // older listing could overwrite a newer destination.
+  int _loadGeneration = 0;
+
   // When this page is the "Library" tab, the navigation shell owns the system
-  // back gesture. Register a handler with it so a selection mode is dismissed
-  // before the shell switches back to the bookshelf. Standalone pushed pages
-  // keep using their own PopScope below.
+  // back gesture. Register a handler with it so the page can dismiss its
+  // selection mode and walk up its own directory stack first; the shell only
+  // switches back to the bookshelf when the browser is at the storage root.
+  // Standalone pushed pages keep using their own PopScope below.
   final Object _backToken = Object();
   HomeBackRegistrar? _registerBack;
 
   bool get _shellOwnsBack => _registerBack != null;
 
   bool _consumeBack() {
+    // A running add or folder scan is not a navigation step; do not let the
+    // gesture interrupt it.
     if (_adding || _scanning) return true;
     if (_selectionMode) {
       _clearSelection();
+      return true;
+    }
+    // Inside a subfolder, back goes up one level. Only at the storage root
+    // does the shell turn the gesture into "go to the bookshelf".
+    if (_canGoUp) {
+      _goUp();
       return true;
     }
     return false;
@@ -101,12 +118,20 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _registerBack = HomeBackDispatcher.of(context);
-    _registerBack?.call(_backToken, _consumeBack);
+    _registerBack?.call(
+      _backToken,
+      HomeNavigationDestination.remoteLibrary,
+      _consumeBack,
+    );
   }
 
   @override
   void dispose() {
-    _registerBack?.call(_backToken, null);
+    _registerBack?.call(
+      _backToken,
+      HomeNavigationDestination.remoteLibrary,
+      null,
+    );
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -181,11 +206,22 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
     _current = _root;
   }
 
-  bool get _canGoUp => _root.isNotEmpty && _current != _root;
+  bool get _canGoUp =>
+      _root.isNotEmpty && _current.isNotEmpty && _current != _root;
+
+  /// Guards against ever browsing above the storage root.
+  bool _underRoot(String path) {
+    if (path == _root) return true;
+    final prefix = _root.endsWith(Platform.pathSeparator)
+        ? _root
+        : _root + Platform.pathSeparator;
+    return path.startsWith(prefix);
+  }
 
   Future<void> _load({String? path}) async {
     final target = path ?? _current;
     if (target.isEmpty || !mounted) return;
+    final generation = ++_loadGeneration;
     setState(() {
       _loading = true;
       _error = null;
@@ -228,7 +264,9 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
     }
     folders.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     books.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    if (!mounted) return;
+    // A newer navigation (a second back gesture, "up" or "root") wins; an
+    // older listing must not overwrite the current destination.
+    if (!mounted || generation != _loadGeneration) return;
     setState(() {
       _current = target;
       _folders = folders;
@@ -246,19 +284,29 @@ class _LocalLibraryPageState extends ConsumerState<LocalLibraryPage>
   void _enter(_FsEntry folder) {
     if (_adding || _scanning) return;
     // Keep the pending selection: books from several folders can be added in
-    // one pass, or one folder at a time on consecutive passes.
+    // one pass, or one folder at a time on consecutive passes. Remember the
+    // parent so a back gesture returns exactly here.
+    _history.add(_current);
     unawaited(_load(path: folder.path));
   }
 
   void _goUp() {
     if (!_canGoUp || _adding || _scanning) return;
-    final parent = p.dirname(_current);
-    if (parent == _current) return;
-    unawaited(_load(path: parent));
+    final parent = _history.isNotEmpty
+        ? _history.removeLast()
+        : p.dirname(_current);
+    if (parent.isEmpty || parent == _current) return;
+    // An unexpected path must not escape the storage root.
+    final target = _underRoot(parent) ? parent : _root;
+    if (target == _current) return;
+    unawaited(_load(path: target));
   }
 
   void _goRoot() {
     if (_adding || _scanning || _root.isEmpty) return;
+    // Going to the root deliberately ends the browsing stack: the next back
+    // gesture belongs to the navigation shell again.
+    _history.clear();
     unawaited(_load(path: _root));
   }
 

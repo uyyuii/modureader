@@ -27,7 +27,15 @@ typedef HomeNavigationPageBuilder = Widget Function(
 /// gesture (for example by leaving its selection mode); the shell must then
 /// stay on that tab instead of jumping to the bookshelf.
 typedef HomeBackHandler = bool Function();
-typedef HomeBackRegistrar = void Function(Object token, HomeBackHandler? handler);
+
+/// Registers a tab page's back handler. The tab identifier travels with the
+/// registration so a stale handler from a previously selected destination can
+/// never swallow a back gesture on the current one.
+typedef HomeBackRegistrar = void Function(
+  Object token,
+  String tabIdentifier,
+  HomeBackHandler? handler,
+);
 
 /// Lets the current tab page take the system back gesture before the shell
 /// turns it into "go to the bookshelf". Pages pushed as their own routes do
@@ -92,19 +100,26 @@ class _HomeNavigationShellState extends State<HomeNavigationShell> {
   bool _holdingSystemInsets = false;
 
   Object? _backToken;
+  String? _backTab;
   HomeBackHandler? _tabBackHandler;
 
-  void _registerTabBack(Object token, HomeBackHandler? handler) {
+  void _registerTabBack(
+    Object token,
+    String tabIdentifier,
+    HomeBackHandler? handler,
+  ) {
     if (handler == null) {
       // An outgoing tab must not clear a handler registered by the incoming
       // one, hence the token check.
       if (_backToken == token) {
         _backToken = null;
+        _backTab = null;
         _tabBackHandler = null;
       }
       return;
     }
     _backToken = token;
+    _backTab = tabIdentifier;
     _tabBackHandler = handler;
   }
 
@@ -259,9 +274,11 @@ class _HomeNavigationShellState extends State<HomeNavigationShell> {
           canPop: onBookshelf,
           onPopInvokedWithResult: (didPop, result) {
             if (didPop || onBookshelf || !mounted) return;
-            // A tab page with its own transient state (a multi-select mode)
-            // gets the first chance to consume the gesture.
-            final handler = _tabBackHandler;
+            // A tab page with its own transient state (a multi-select mode or
+            // a nested directory in the local library) gets the first chance
+            // to consume the gesture. A registration left behind by another
+            // tab must not intercept it.
+            final handler = _backTab == _currentTab ? _tabBackHandler : null;
             if (handler != null && handler()) return;
             setState(() {
               _currentTab = HomeNavigationDestination.bookshelf;
