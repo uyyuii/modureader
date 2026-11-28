@@ -18,6 +18,20 @@ class BookStyle {
   double columnThreshold;
   bool textSpacingTrim;
 
+  // Fine-grained book style preservation, inspired by Reeden's "Book Styles".
+  // When Prefs.useBookStyles is on, all publisher CSS is kept regardless of
+  // these fields. When off, each flag keeps one category of publisher CSS
+  // instead of the reader setting. Mode: 0 = reader, 1 = smart (body only),
+  // 2 = keep book. Defaults preserve the pre-existing behaviour.
+  bool cssKeepFont;
+  bool cssKeepFontSize;
+  bool cssKeepFontWeight;
+  bool cssKeepColor;
+  bool cssKeepAlignIndent;
+  int cssLineHeightMode;
+  int cssParagraphSpacingMode;
+  bool cssAutoFitTables;
+
   BookStyle({
     this.fontSize = 1.4,
     this.fontFamily = 'Arial',
@@ -35,6 +49,14 @@ class BookStyle {
     this.headingFontSize = 1.0,
     this.columnThreshold = 720.0,
     this.textSpacingTrim = false,
+    this.cssKeepFont = false,
+    this.cssKeepFontSize = false,
+    this.cssKeepFontWeight = false,
+    this.cssKeepColor = false,
+    this.cssKeepAlignIndent = false,
+    this.cssLineHeightMode = 0,
+    this.cssParagraphSpacingMode = 0,
+    this.cssAutoFitTables = false,
   });
 
   BookStyle copyWith({
@@ -54,6 +76,14 @@ class BookStyle {
     double? headingFontSize,
     double? columnThreshold,
     bool? textSpacingTrim,
+    bool? cssKeepFont,
+    bool? cssKeepFontSize,
+    bool? cssKeepFontWeight,
+    bool? cssKeepColor,
+    bool? cssKeepAlignIndent,
+    int? cssLineHeightMode,
+    int? cssParagraphSpacingMode,
+    bool? cssAutoFitTables,
   }) {
     return BookStyle(
       fontSize: fontSize ?? this.fontSize,
@@ -72,6 +102,15 @@ class BookStyle {
       headingFontSize: headingFontSize ?? this.headingFontSize,
       columnThreshold: columnThreshold ?? this.columnThreshold,
       textSpacingTrim: textSpacingTrim ?? this.textSpacingTrim,
+      cssKeepFont: cssKeepFont ?? this.cssKeepFont,
+      cssKeepFontSize: cssKeepFontSize ?? this.cssKeepFontSize,
+      cssKeepFontWeight: cssKeepFontWeight ?? this.cssKeepFontWeight,
+      cssKeepColor: cssKeepColor ?? this.cssKeepColor,
+      cssKeepAlignIndent: cssKeepAlignIndent ?? this.cssKeepAlignIndent,
+      cssLineHeightMode: cssLineHeightMode ?? this.cssLineHeightMode,
+      cssParagraphSpacingMode:
+          cssParagraphSpacingMode ?? this.cssParagraphSpacingMode,
+      cssAutoFitTables: cssAutoFitTables ?? this.cssAutoFitTables,
     );
   }
 
@@ -93,6 +132,14 @@ class BookStyle {
       'headingFontSize': headingFontSize,
       'columnThreshold': columnThreshold,
       'textSpacingTrim': textSpacingTrim,
+      'cssKeepFont': cssKeepFont,
+      'cssKeepFontSize': cssKeepFontSize,
+      'cssKeepFontWeight': cssKeepFontWeight,
+      'cssKeepColor': cssKeepColor,
+      'cssKeepAlignIndent': cssKeepAlignIndent,
+      'cssLineHeightMode': cssLineHeightMode,
+      'cssParagraphSpacingMode': cssParagraphSpacingMode,
+      'cssAutoFitTables': cssAutoFitTables,
     };
   }
 
@@ -114,7 +161,15 @@ class BookStyle {
       "maxColumnCount": $maxColumnCount,
       "headingFontSize": $headingFontSize,
       "columnThreshold": $columnThreshold,
-      "textSpacingTrim": $textSpacingTrim
+      "textSpacingTrim": $textSpacingTrim,
+      "cssKeepFont": $cssKeepFont,
+      "cssKeepFontSize": $cssKeepFontSize,
+      "cssKeepFontWeight": $cssKeepFontWeight,
+      "cssKeepColor": $cssKeepColor,
+      "cssKeepAlignIndent": $cssKeepAlignIndent,
+      "cssLineHeightMode": $cssLineHeightMode,
+      "cssParagraphSpacingMode": $cssParagraphSpacingMode,
+      "cssAutoFitTables": $cssAutoFitTables
     }
     ''';
   }
@@ -194,6 +249,32 @@ class BookStyle {
               : data['columnThreshold'],
       // 老配置里没有该键，默认 false 保持原有排版不变。
       textSpacingTrim: data['textSpacingTrim'] == true,
+      cssKeepFont: data['cssKeepFont'] == true,
+      cssKeepFontSize: data['cssKeepFontSize'] == true,
+      cssKeepFontWeight: data['cssKeepFontWeight'] == true,
+      cssKeepColor: data['cssKeepColor'] == true,
+      cssKeepAlignIndent: data['cssKeepAlignIndent'] == true,
+      cssLineHeightMode: _readCssMode(data['cssLineHeightMode']),
+      cssParagraphSpacingMode: _readCssMode(data['cssParagraphSpacingMode']),
+      cssAutoFitTables: data['cssAutoFitTables'] == true,
     );
+  }
+
+  /// Payload handed to foliate-js getCSS() on first open and style changes.
+  Map<String, dynamic> get cssOverrides => {
+        'keepFont': cssKeepFont,
+        'keepFontSize': cssKeepFontSize,
+        'keepFontWeight': cssKeepFontWeight,
+        'keepColor': cssKeepColor,
+        'keepAlignIndent': cssKeepAlignIndent,
+        'lineHeightMode': cssLineHeightMode,
+        'paragraphSpacingMode': cssParagraphSpacingMode,
+        'autoFitTables': cssAutoFitTables,
+      };
+
+  static int _readCssMode(dynamic value) {
+    final parsed = value is String ? int.tryParse(value) : value;
+    if (parsed is! int) return 0;
+    return parsed.clamp(0, 2);
   }
 }

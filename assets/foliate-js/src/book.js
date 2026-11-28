@@ -488,6 +488,7 @@ const getCSS = ({ fontSize,
   customCSS,
   customCSSEnabled,
   useBookStyles,
+  cssOverrides,
   headingFontSize,
   codeHighlightTheme,
   eInkMode,
@@ -498,6 +499,22 @@ const getCSS = ({ fontSize,
   const { faces: fontFaces, family: fontFamily } = readerFontCSS({
     fontName, fontPath, englishFontName, englishFontPath,
   })
+
+  // Fine-grained publisher CSS preservation (mirrors Reeden's Book Styles).
+  // "useBookStyles" is the master switch; the per-category flags below only
+  // apply when it is off, so older configurations keep their behaviour.
+  const cssKeep = cssOverrides || {}
+  const bookFont = useBookStyles || cssKeep.keepFont === true
+  const bookFontSize = useBookStyles || cssKeep.keepFontSize === true
+  const bookFontWeight = useBookStyles || cssKeep.keepFontWeight === true
+  const bookColor = useBookStyles || cssKeep.keepColor === true
+  const bookAlign = useBookStyles || cssKeep.keepAlignIndent === true
+  const lineMode = cssKeep.lineHeightMode ?? 0
+  const spacingMode = cssKeep.paragraphSpacingMode ?? 0
+  const bodyLineHeight = useBookStyles || lineMode === 2
+  const headingLineHeight = useBookStyles || lineMode !== 0
+  const bodySpacing = useBookStyles || spacingMode === 2
+  const fontFamilyCSS = bookFont ? '' : fontFamily
 
   const writingModeCSS = writingMode === 'auto' ? '' : `writing-mode: ${writingMode} !important;`
 
@@ -525,7 +542,7 @@ const getCSS = ({ fontSize,
         ${backgroundImageCSS}
         background-color: transparent !important;
         ${useBookStyles ? '' : `letter-spacing: ${letterSpacing}px;`}
-        ${useBookStyles ? '' : `font-size: ${fontSize}em${userOverride};`}
+        ${bookFontSize ? '' : `font-size: ${fontSize}em${userOverride};`}
         orphans: 1;  
         widows: 1;
     }
@@ -562,50 +579,50 @@ const getCSS = ({ fontSize,
 
     * {
         // line-height: ${spacing}em !important;
-        ${fontFamily}
+        ${fontFamilyCSS}
     }
 
-    ${readerFontWeightCSS({ fontWeight, simulateBold, useBookStyles, pdf: isPdf })}
+    ${readerFontWeightCSS({ fontWeight, simulateBold, useBookStyles: bookFontWeight, pdf: isPdf })}
 
     /* Publisher spans/headings can override the paragraph's inherited color. */
-    ${useBookStyles || isPdf ? '' : `
+    ${bookColor || isPdf ? '' : `
     ${(globalThis.CSS?.supports?.('selector(:where(*))') ?? true) ? 'body :is(h1, h2, h3, h4, h5, h6, span, b, strong, em, i, u, small, cite, q, sup, sub):not(:where(a *, svg *, pre *, code *))' : 'body [data-modu-reader-color]'} {
         color: var(--modu-reader-font-color, ${fontColor}) !important;
     }
     `}
 
     ${useBookStyles ? '' : `
-    h1 { 
-        font-size: calc(2em * ${headingFontSize})${userOverride}; 
-        line-height: ${spacing}${userOverride};
+    h1 {
+        ${bookFontSize ? '' : `font-size: calc(2em * ${headingFontSize})${userOverride};`}
+        ${headingLineHeight ? '' : `line-height: ${spacing}${userOverride};`}
     }
-    h2 { 
-        font-size: calc(1.5em * ${headingFontSize})${userOverride}; 
-        line-height: ${spacing}${userOverride};
+    h2 {
+        ${bookFontSize ? '' : `font-size: calc(1.5em * ${headingFontSize})${userOverride};`}
+        ${headingLineHeight ? '' : `line-height: ${spacing}${userOverride};`}
     }
-    h3 { 
-        font-size: calc(1.17em * ${headingFontSize})${userOverride}; 
-        line-height: ${spacing}${userOverride};
+    h3 {
+        ${bookFontSize ? '' : `font-size: calc(1.17em * ${headingFontSize})${userOverride};`}
+        ${headingLineHeight ? '' : `line-height: ${spacing}${userOverride};`}
     }
-    h4 { 
-        font-size: calc(1em * ${headingFontSize})${userOverride}; 
-        line-height: ${spacing}${userOverride};
+    h4 {
+        ${bookFontSize ? '' : `font-size: calc(1em * ${headingFontSize})${userOverride};`}
+        ${headingLineHeight ? '' : `line-height: ${spacing}${userOverride};`}
     }
-    h5 { 
-        font-size: calc(0.83em * ${headingFontSize})${userOverride}; 
-        line-height: ${spacing}${userOverride};
+    h5 {
+        ${bookFontSize ? '' : `font-size: calc(0.83em * ${headingFontSize})${userOverride};`}
+        ${headingLineHeight ? '' : `line-height: ${spacing}${userOverride};`}
     }
-    h6 { 
-        font-size: calc(0.67em * ${headingFontSize})${userOverride}; 
-        line-height: ${spacing}${userOverride};
+    h6 {
+        ${bookFontSize ? '' : `font-size: calc(0.67em * ${headingFontSize})${userOverride};`}
+        ${headingLineHeight ? '' : `line-height: ${spacing}${userOverride};`}
     }
     `}
 
     p, li, blockquote, dd, ${(globalThis.CSS?.supports?.('selector(:has(*))') ?? true) ? 'div:not(:has(*:not(b, a, em, i, strong, u, span, modu-page-run)))' : 'div[data-modu-paragraph]'}, font {
-        color: var(--modu-reader-font-color, ${fontColor}) !important;
-        ${useBookStyles ? '' : `line-height: ${spacing}${userOverride};`}
-        ${useBookStyles || textAlign === 'auto' ? '' : `text-align: ${textAlign};`}
-        ${useBookStyles || textIndent < 0 ? '' : 'text-indent: ' + textIndent + 'em' + userOverride + ';'}
+        ${bookColor ? '' : `color: var(--modu-reader-font-color, ${fontColor}) !important;`}
+        ${bodyLineHeight ? '' : `line-height: ${spacing}${userOverride};`}
+        ${bookAlign || textAlign === 'auto' ? '' : `text-align: ${textAlign};`}
+        ${bookAlign || textIndent < 0 ? '' : 'text-indent: ' + textIndent + 'em' + userOverride + ';'}
         ${useBookStyles ? '' : `word-spacing: ${wordSpacing}px${userOverride};`}
         -webkit-hyphens: ${hyphenate ? 'auto' : 'manual'};
         hyphens: ${hyphenate ? 'auto' : 'manual'};
@@ -614,9 +631,14 @@ const getCSS = ({ fontSize,
         -webkit-hyphenate-limit-lines: 2;
         hanging-punctuation: allow-end last;
         ${useBookStyles ? '' : 'widows: 1; orphans: 1;'}
-        ${useBookStyles ? '' : `margin-block-start: ${paragraphSpacing / 2}em${userOverride};`}
-        ${useBookStyles ? '' : `margin-block-end: ${paragraphSpacing / 2}em${userOverride};`}
+        ${bodySpacing ? '' : `margin-block-start: ${paragraphSpacing / 2}em${userOverride};`}
+        ${bodySpacing ? '' : `margin-block-end: ${paragraphSpacing / 2}em${userOverride};`}
     }
+
+    ${cssKeep.autoFitTables === true ? `
+    /* Reeden-style wide-table adaptation: keep tables inside the page width. */
+    table { max-width: 100% !important; table-layout: auto; height: auto; }
+    ` : ''}
 
     .anx-text-center,
     [align="center"],
@@ -898,6 +920,7 @@ const replaceFootnote = (view, sourceFontSize) => {
     customCSSEnabled: style.customCSSEnabled,
     writingMode: style.writingMode,
     useBookStyles: style.useBookStyles,
+    cssOverrides: style.cssOverrides,
     headingFontSize: style.headingFontSize,
   }
   // Use source paragraph CSS pixels when available. Preference em size is
@@ -1810,6 +1833,7 @@ const setStyle = (oldStyle) => {
     customCSS: style.customCSS,
     customCSSEnabled: style.customCSSEnabled,
     useBookStyles: style.useBookStyles,
+    cssOverrides: style.cssOverrides,
     headingFontSize: style.headingFontSize,
     textSpacingTrim: style.textSpacingTrim
   }

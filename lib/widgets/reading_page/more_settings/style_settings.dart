@@ -9,6 +9,7 @@ import 'package:anx_reader/models/book_style.dart';
 import 'package:anx_reader/page/reading_page.dart';
 import 'package:anx_reader/widgets/icon_and_text.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:icons_plus/icons_plus.dart';
 import 'package:anx_reader/service/ocr/document_text_style.dart';
 import 'reader_setting_availability.dart';
@@ -125,6 +126,168 @@ class _StyleSettingsState extends State<StyleSettings> {
       );
     }
 
+    // Reeden-style per-category publisher CSS control. The master switch above
+    // wins; when it is off each flag decides whether one category of the
+    // book's own CSS survives the reader typography overrides.
+    Widget bookStyleDetails() {
+      const modeKeys = ['reader', 'smart', 'book'];
+      const modeZh = ['阅读设置', '智能适配', '保留书籍'];
+      const modeEn = ['Reader', 'Smart', 'Book'];
+
+      Widget flag(BuildContext ctx, String zh, String en, bool value,
+          ValueChanged<bool> onChanged) {
+        return SwitchListTile(
+          title: Text(ModuStrings.text(ctx, zh, en)),
+          value: value,
+          onChanged: onChanged,
+        );
+      }
+
+      Widget mode(BuildContext ctx, String zh, String en, int value,
+          ValueChanged<int> onChanged) {
+        return ListTile(
+          title: Text(ModuStrings.text(ctx, zh, en)),
+          trailing: DropdownMenu<int>(
+            width: 132,
+            initialSelection: value,
+            dropdownMenuEntries: [
+              for (var i = 0; i < modeKeys.length; i++)
+                DropdownMenuEntry<int>(
+                    value: i, label: ModuStrings.text(ctx, modeZh[i], modeEn[i])),
+            ],
+            onSelected: (v) {
+              if (v != null) onChanged(v);
+            },
+          ),
+        );
+      }
+
+      return ListTile(
+        leading: const Icon(Icons.tune),
+        title: Text(ModuStrings.text(context, '书籍样式细则', 'Book style details')),
+        subtitle: Text(ModuStrings.text(
+            context,
+            '按类别保留 EPUB 自带样式，解决某一项调了不生效',
+            'Keep publisher CSS per category when a layout setting has no effect')),
+        onTap: () {
+          final style = Prefs().bookStyle;
+          showModalBottomSheet<void>(
+            context: context,
+            isScrollControlled: true,
+            builder: (ctx) => SafeArea(
+              child: SingleChildScrollView(
+                child: StatefulBuilder(
+                  builder: (ctx, sheetSetState) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 6),
+                          child: Text(
+                            ModuStrings.text(
+                                ctx,
+                                '「使用书籍中的样式」打开时本页全部不生效；关闭后，下面每项决定该类书籍样式是否保留。智能适配只保护标题等特殊版式。',
+                                'These apply only when "Use book styles" is off. Smart keeps special layouts such as headings.'),
+                            style: Theme.of(ctx).textTheme.bodySmall,
+                          ),
+                        ),
+                        flag(ctx, '保留书籍字体', 'Keep book font',
+                            style.cssKeepFont, (v) {
+                          sheetSetState(() => style.cssKeepFont = v);
+                          _saveBookStyle(style);
+                        }),
+                        flag(ctx, '保留书籍字号', 'Keep book font size',
+                            style.cssKeepFontSize, (v) {
+                          sheetSetState(() => style.cssKeepFontSize = v);
+                          _saveBookStyle(style);
+                        }),
+                        flag(ctx, '保留书籍字重', 'Keep book font weight',
+                            style.cssKeepFontWeight, (v) {
+                          sheetSetState(() => style.cssKeepFontWeight = v);
+                          _saveBookStyle(style);
+                        }),
+                        flag(ctx, '保留文字颜色', 'Keep text color',
+                            style.cssKeepColor, (v) {
+                          sheetSetState(() => style.cssKeepColor = v);
+                          _saveBookStyle(style);
+                        }),
+                        flag(ctx, '保留对齐与缩进', 'Keep alignment and indent',
+                            style.cssKeepAlignIndent, (v) {
+                          sheetSetState(() => style.cssKeepAlignIndent = v);
+                          _saveBookStyle(style);
+                        }),
+                        mode(ctx, '行高模式', 'Line height mode',
+                            style.cssLineHeightMode, (v) {
+                          sheetSetState(() => style.cssLineHeightMode = v);
+                          _saveBookStyle(style);
+                        }),
+                        mode(ctx, '段距模式', 'Paragraph spacing mode',
+                            style.cssParagraphSpacingMode, (v) {
+                          sheetSetState(() => style.cssParagraphSpacingMode = v);
+                          _saveBookStyle(style);
+                        }),
+                        flag(ctx, '宽表格自动适配', 'Auto-fit wide tables',
+                            style.cssAutoFitTables, (v) {
+                          sheetSetState(() => style.cssAutoFitTables = v);
+                          _saveBookStyle(style);
+                        }),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    }
+
+    // Reeden has "copy layout / paste layout" at the bottom of its layout
+    // panel. BookStyle.toJson already carries every field, including the new
+    // CSS flags, so the clipboard payload stays portable across devices.
+    Widget layoutClipboard() {
+      Future<void> copy() async {
+        await Clipboard.setData(ClipboardData(text: Prefs().bookStyle.toJson()));
+        if (!mounted) return;
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+            content: Text(ModuStrings.text(context, '排版已复制', 'Layout copied'))));
+      }
+
+      Future<void> paste() async {
+        final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
+        if (text == null || text.isEmpty) return;
+        try {
+          final style = BookStyle.fromJson(text);
+          Prefs().saveBookStyleToPrefs(style);
+          epubPlayerKey.currentState?.changeStyle(style);
+          if (!mounted) return;
+          setState(() {});
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+              content: Text(ModuStrings.text(context, '排版已粘贴', 'Layout pasted'))));
+        } catch (_) {
+          if (!mounted) return;
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+              content: Text(ModuStrings.text(context, '排版数据无效', 'Invalid layout data'))));
+        }
+      }
+
+      return Row(children: [
+        Expanded(
+            child: OutlinedButton.icon(
+                onPressed: copy,
+                icon: const Icon(Icons.copy),
+                label: Text(ModuStrings.text(context, '复制排版', 'Copy layout')))),
+        const SizedBox(width: 8),
+        Expanded(
+            child: OutlinedButton.icon(
+                onPressed: paste,
+                icon: const Icon(Icons.checklist),
+                label: Text(ModuStrings.text(context, '粘贴排版', 'Paste layout')))),
+      ]);
+    }
+
     Widget textIndent(BookStyle bookStyle, StateSetter setState) {
       bool enabled = !_document && !Prefs().useBookStyles;
       return StyleSlider(
@@ -137,14 +300,47 @@ class _StyleSettingsState extends State<StyleSettings> {
             _saveBookStyle(bookStyle);
           });
         },
-        min: -0.5,
+        min: -1,
         max: 8,
-        divisions: 17,
+        divisions: 18,
         labelFormatter: (value) => value < 0
             ? L10n.of(context).readingPageIndentNoChange
             : value.toStringAsFixed(1),
         enabled: enabled,
       );
+    }
+
+    Widget indentPresets(BookStyle bookStyle, StateSetter setState) {
+      const values = <double>[-1, 0, 1, 2, 3, 4];
+      String label(double value) {
+        if (value < 0) return ModuStrings.text(context, '默认', 'Default');
+        if (value == 0) return ModuStrings.text(context, '无', 'None');
+        return ModuStrings.format(
+            context, '{n} 字', '{n} char', {'n': value.toStringAsFixed(0)});
+      }
+
+      final current = values.contains(bookStyle.indent) ? bookStyle.indent : 0.0;
+      return Row(children: [
+        const Icon(Icons.format_indent_increase),
+        const SizedBox(width: 12),
+        Text(L10n.of(context).readingPageIndent),
+        const Spacer(),
+        DropdownMenu<double>(
+          width: 120,
+          initialSelection: current,
+          dropdownMenuEntries: [
+            for (final value in values)
+              DropdownMenuEntry<double>(value: value, label: label(value)),
+          ],
+          onSelected: (value) {
+            if (value == null) return;
+            setState(() {
+              bookStyle.indent = value;
+              _saveBookStyle(bookStyle);
+            });
+          },
+        ),
+      ]);
     }
 
     Widget sideMarginSlider(BookStyle bookStyle, StateSetter setState) {
@@ -416,7 +612,12 @@ class _StyleSettingsState extends State<StyleSettings> {
         builder: (BuildContext context, StateSetter setState) => Column(
           children: [
             ReaderSettingAvailability(
+                enabled: !_document,
+                child: indentPresets(bookStyle, setState)),
+            ReaderSettingAvailability(
                 enabled: !_document, child: textIndent(bookStyle, setState)),
+            ReaderSettingAvailability(
+                enabled: !_document, child: bookStyleDetails()),
             sideMarginSlider(bookStyle, setState),
             topBottomMarginSlider(bookStyle, setState),
             letterSpacingSlider(bookStyle, setState),
@@ -429,6 +630,8 @@ class _StyleSettingsState extends State<StyleSettings> {
             ReaderSettingAvailability(
                 enabled: !_document && !Prefs().useBookStyles,
                 child: textSpacingTrimSwitch(bookStyle, setState)),
+            ReaderSettingAvailability(
+                enabled: !_document, child: layoutClipboard()),
           ],
         ),
       );

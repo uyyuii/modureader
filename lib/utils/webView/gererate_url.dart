@@ -136,6 +136,7 @@ String generateUrl(
     'customHighlightRules': Prefs().customHighlightRulesForBook(cssBookKey),
     'customCSSEnabled': Prefs().customCssSelection(cssBookKey).enabled,
     'useBookStyles': Prefs().useBookStyles,
+    'cssOverrides': bookStyle.cssOverrides,
     'headingFontSize': bookStyle.headingFontSize,
     'textSpacingTrim': bookStyle.textSpacingTrim,
     'codeHighlightTheme': Prefs().codeHighlightTheme.code,

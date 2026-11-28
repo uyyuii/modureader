@@ -893,6 +893,7 @@ class EpubPlayerState extends ConsumerState<EpubPlayer> {
         customHighlightRules: ${jsonEncode(Prefs().customHighlightRulesForBook(cssBookKey))},
         customCSSEnabled: ${Prefs().customCssSelection(cssBookKey).enabled},
         useBookStyles: ${Prefs().useBookStyles},
+        cssOverrides: ${jsonEncode(style.cssOverrides)},
         headingFontSize: ${style.headingFontSize},
         textSpacingTrim: ${style.textSpacingTrim},
         codeHighlightTheme: '${Prefs().codeHighlightTheme.code}',
