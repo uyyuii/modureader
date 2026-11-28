@@ -315,8 +315,8 @@ class _StyleSettingsState extends State<StyleSettings> {
       String label(double value) {
         if (value < 0) return ModuStrings.text(context, '默认', 'Default');
         if (value == 0) return ModuStrings.text(context, '无', 'None');
-        return ModuStrings.format(
-            context, '{n} 字', '{n} char', {'n': value.toStringAsFixed(0)});
+        return ModuStrings.format(context, '{n} 字', '{n} char',
+            values: {'n': value.toStringAsFixed(0)});
       }
 
       final current = values.contains(bookStyle.indent) ? bookStyle.indent : 0.0;
