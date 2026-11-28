@@ -4,6 +4,7 @@ import 'package:anx_reader/l10n/generated/L10n.dart';
 import 'package:anx_reader/main.dart';
 import 'package:anx_reader/models/book.dart';
 import 'package:anx_reader/models/statistic_data_model.dart';
+import 'package:anx_reader/providers/reading_data_revision.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -124,6 +125,9 @@ class StatisticData extends _$StatisticData {
 
   @override
   FutureOr<StatisticDataModel> build() async {
+    // Manual history deletions bump this after writing to tb_reading_time.
+    // Without watching it, switching day/month/year shows stale rows.
+    ref.watch(readingDataRevisionProvider);
     const initialMode = ChartMode.week;
     final initialDate = DateTime.now();
 

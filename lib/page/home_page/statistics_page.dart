@@ -152,7 +152,10 @@ class _DateBooksState extends ConsumerState<DateBooks> {
 
     Widget dragToDelete(Widget child, ReadingTimeDeletion deletion) {
       return StatefulBuilder(builder: (context, localSetState) {
-        if (pendingDeletions.contains(deletion)) {
+        // Match by book, not by the visible day/month/year scope: a manual
+        // deletion removes the whole book history, so the placeholder must
+        // follow the book into every other view as well.
+        if (pendingDeletions.any((d) => d.bookId == deletion.bookId)) {
           return OutlinedContainer(
             margin: const EdgeInsets.only(bottom: 10),
             height: 146,
@@ -180,7 +183,8 @@ class _DateBooksState extends ConsumerState<DateBooks> {
                     FilledButton(
                         onPressed: () {
                           localSetState(() {
-                            pendingDeletions.remove(deletion);
+                            pendingDeletions.removeWhere(
+                                (d) => d.bookId == deletion.bookId);
                           });
                         },
                         child: Text(L10n.of(context).commonUndo)),
@@ -268,12 +272,9 @@ class _DateBooksState extends ConsumerState<DateBooks> {
                         book: book,
                         readingTime: readingTime,
                       ),
-                      readingTimeDeletion(
-                        bookId: book.id,
-                        date: data.date,
-                        mode: data.mode,
-                        isSelectingDay: data.isSelectingDay,
-                      ),
+                      // Removing one history row must clear the book from
+                      // day, week, month, year and all-time views alike.
+                      readingTimeBookDeletion(book.id),
                     );
                   })
                 ],

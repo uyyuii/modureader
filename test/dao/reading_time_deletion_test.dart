@@ -15,6 +15,13 @@ void main() {
         isSelectingDay: day,
       );
 
+  test('manual history deletion clears the whole book in every view', () {
+    final deletion = readingTimeBookDeletion(42);
+    expect(deletion, (bookId: 42, start: null, end: null));
+    expect(deletion.where, 'book_id = ?');
+    expect(deletion.whereArgs, [42]);
+  });
+
   test('calendar ranges include cross-year weeks and leap months', () {
     expect(scope(DateTime(2026, 1, 1)),
         (bookId: 1, start: '2025-12-29', end: '2026-01-04'));

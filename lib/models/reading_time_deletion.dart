@@ -3,6 +3,15 @@ import 'package:anx_reader/enums/chart_mode.dart';
 // Capture the selected interval when deleting, not when leaving statistics.
 typedef ReadingTimeDeletion = ({int bookId, String? start, String? end});
 
+/// A manual deletion from the history list removes this book's entire
+/// reading history, not just the day that happened to be on screen.
+///
+/// Day/week/month/year views are all aggregates of the same `tb_reading_time`
+/// table. A date-limited scope would hide the row in the current view but let
+/// the same book reappear as soon as the user switched to another view.
+ReadingTimeDeletion readingTimeBookDeletion(int bookId) =>
+    (bookId: bookId, start: null, end: null);
+
 ReadingTimeDeletion readingTimeDeletion({
   required int bookId,
   required DateTime date,

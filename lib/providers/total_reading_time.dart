@@ -1,4 +1,5 @@
 import 'package:anx_reader/dao/reading_time.dart';
+import 'package:anx_reader/providers/reading_data_revision.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'total_reading_time.g.dart';
@@ -7,6 +8,7 @@ part 'total_reading_time.g.dart';
 class TotalReadingTime extends _$TotalReadingTime {
   @override
   Future<int> build() async {
+    ref.watch(readingDataRevisionProvider);
     return _getTotalReadingTime();
   }
 
