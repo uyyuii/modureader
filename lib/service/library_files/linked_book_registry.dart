@@ -6,6 +6,8 @@ import 'package:anx_reader/dao/book.dart';
 import 'package:anx_reader/models/book.dart';
 import 'package:anx_reader/service/book.dart' show resetBookCover;
 import 'package:anx_reader/service/linked_books.dart';
+import 'package:anx_reader/utils/lightweight_cover_extractor.dart'
+    show LightweightCoverExtractor;
 import 'package:anx_reader/utils/log/common.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
@@ -33,6 +35,18 @@ class LinkedBookRegistry {
   static bool _coverWorkerRunning = false;
   static Timer? _notifyTimer;
 
+  /// Titles/authors read from an EPUB OPF after the Book row was created.
+  /// Widgets holding an old Book snapshot read these through [titleFor] /
+  /// [authorFor], so a background backfill shows up on the next rebuild.
+  static final Map<int, String> _backfilledTitles = <int, String>{};
+  static final Map<int, String> _backfilledAuthors = <int, String>{};
+  static final Queue<Book> _metadataQueue = Queue<Book>();
+  static final Set<int> _metadataInFlight = <int>{};
+  static bool _metadataWorkerRunning = false;
+
+  static String? titleFor(Book book) => _backfilledTitles[book.id];
+  static String? authorFor(Book book) => _backfilledAuthors[book.id];
+
   /// Queue a cover for a linked book that has no usable cover yet. Called both
   /// from registration and from the cover widget's build, so it must be cheap,
   /// idempotent, and must never run two extractions for the same row.
@@ -48,6 +62,68 @@ class LinkedBookRegistry {
     }
     _coverQueue.add(book);
     unawaited(_drainCovers());
+  }
+
+  /// Schedule an OPF title/author backfill for linked EPUBs that were imported
+  /// before metadata parsing existed. A user-edited title is never replaced.
+  static void requestMetadata(Book book) {
+    if (book.id <= 0 || !LinkedBooks.isLinked(book.filePath)) return;
+    final path = book.fileFullPath;
+    if (p.extension(path).toLowerCase() != '.epub') return;
+    if (!_looksLikeFilenameTitle(book.title, path)) return;
+    if (!File(path).existsSync()) return;
+    if (_metadataQueue.length >= 30 || !_metadataInFlight.add(book.id)) return;
+    _metadataQueue.add(book);
+    unawaited(_drainMetadata());
+  }
+
+  /// A title equal to the file name (with or without extension) means the row
+  /// never received a real metadata title. Empty titles count as missing too.
+  static bool _looksLikeFilenameTitle(String title, String path) {
+    final value = title.trim();
+    return value.isEmpty ||
+        value == p.basenameWithoutExtension(path) ||
+        value == p.basename(path);
+  }
+
+  /// Strictly serial, like cover extraction: one zip directory at a time.
+  static Future<void> _drainMetadata() async {
+    if (_metadataWorkerRunning) return;
+    _metadataWorkerRunning = true;
+    try {
+      while (_metadataQueue.isNotEmpty) {
+        final book = _metadataQueue.removeFirst();
+        try {
+          final meta = await LightweightCoverExtractor.readEpubMetadata(
+            book.fileFullPath,
+          );
+          final title = meta?.title;
+          if (title == null || title.isEmpty) continue;
+          // Re-read the row: progress sync may have written a newer snapshot.
+          final fresh = await bookDao.selectBookById(book.id);
+          if (!_looksLikeFilenameTitle(fresh.title, fresh.fileFullPath)) {
+            continue;
+          }
+          final author = fresh.author.trim().isEmpty
+              ? (meta?.author ?? '')
+              : fresh.author;
+          if (fresh.title != title || fresh.author != author) {
+            await bookDao.updateBook(
+              fresh.copyWith(title: title, author: author),
+            );
+          }
+          _backfilledTitles[book.id] = title;
+          _backfilledAuthors[book.id] = author;
+          _scheduleCoverNotify();
+        } catch (_) {
+          // Unreadable / malformed book: keep the file-name title as-is.
+        } finally {
+          _metadataInFlight.remove(book.id);
+        }
+      }
+    } finally {
+      _metadataWorkerRunning = false;
+    }
   }
 
   static void _scheduleCoverNotify() {
@@ -123,8 +199,9 @@ class LinkedBookRegistry {
     final absolute = File(path).absolute.path;
     final known = knownBooks?[absolute];
     if (known != null) {
-      // Covers books added by an older build that skipped metadata parsing.
+      // Older builds registered file-browser books without parsing metadata.
       requestCover(known);
+      requestMetadata(known);
       return known;
     }
 
@@ -136,18 +213,24 @@ class LinkedBookRegistry {
     if (existing != null) {
       knownBooks?[absolute] = existing;
       requestCover(existing);
+      requestMetadata(existing);
       return existing;
     }
 
+    // One cheap zip-directory read; no WebView and no whole-book Blob. Keep
+    // the caller-supplied name (e.g. a WebDAV entry name) as the fallback.
+    final meta = await LightweightCoverExtractor.readEpubMetadata(absolute);
+    final effectiveTitle =
+        meta?.title ?? title ?? p.basenameWithoutExtension(absolute);
     final now = DateTime.now();
     final book = Book(
       id: -1,
-      title: title ?? p.basenameWithoutExtension(absolute),
+      title: effectiveTitle,
       coverPath: '',
       filePath: key,
       lastReadPosition: '',
       readingPercentage: 0.0,
-      author: '',
+      author: meta?.author ?? '',
       isDeleted: false,
       rating: 0.0,
       createTime: now,

@@ -8,6 +8,7 @@ import 'package:anx_reader/providers/bookshelf_pins.dart';
 import 'package:anx_reader/service/book.dart';
 import 'package:anx_reader/service/knowledge/book_knowledge_index_queue.dart';
 import 'package:anx_reader/service/knowledge/book_knowledge_index_service.dart';
+import 'package:anx_reader/service/library_files/linked_book_registry.dart';
 import 'package:anx_reader/widgets/bookshelf/book_bottom_sheet.dart';
 import 'package:anx_reader/widgets/bookshelf/book_cover.dart';
 import 'package:anx_reader/widgets/page_router/reader_cover_hero.dart';
@@ -60,6 +61,17 @@ class _BookItemState extends ConsumerState<BookItem> {
 
   @override
   Widget build(BuildContext context) {
+    // A background OPF backfill updates the title/author of linked books.
+    return ValueListenableBuilder<int>(
+      valueListenable: LinkedBookRegistry.coverVersion,
+      builder: (context, _, __) => _build(context),
+    );
+  }
+
+  Widget _build(BuildContext context) {
+    LinkedBookRegistry.requestMetadata(book);
+    final displayTitle = LinkedBookRegistry.titleFor(book) ?? book.title;
+    final displayAuthor = LinkedBookRegistry.authorFor(book) ?? book.author;
     final pinned = ref.watch(bookshelfPinsProvider).contains(bookPinKey(book));
     void toggleSelection() {
       onSelectionChanged?.call(book, !selected);
@@ -110,7 +122,7 @@ class _BookItemState extends ConsumerState<BookItem> {
                           children: [
                             Row(children: [
                               Expanded(
-                                child: Text(book.title,
+                                child: Text(displayTitle,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: Theme.of(context)
@@ -129,7 +141,8 @@ class _BookItemState extends ConsumerState<BookItem> {
                             const SizedBox(height: 4),
                             Text(
                               [
-                                if (book.author.trim().isNotEmpty) book.author,
+                                if (displayAuthor.trim().isNotEmpty)
+                                  displayAuthor,
                                 '${(book.readingPercentage * 100).toStringAsFixed(0)}%',
                               ].join(' · '),
                               maxLines: 1,
@@ -295,7 +308,7 @@ class _BookItemState extends ConsumerState<BookItem> {
                             children: [
                               Expanded(
                                 child: Text(
-                                  book.title,
+                                  displayTitle,
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
@@ -319,7 +332,7 @@ class _BookItemState extends ConsumerState<BookItem> {
                             children: [
                               Expanded(
                                 child: Text(
-                                  book.author,
+                                  displayAuthor,
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w300,
                                     fontSize: 9,

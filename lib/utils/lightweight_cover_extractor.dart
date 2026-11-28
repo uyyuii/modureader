@@ -97,6 +97,87 @@ class LightweightCoverExtractor {
     return saveImageBytesToLocal(bytes, name, extension: imageExtension);
   }
 
+  /// Read the publication title/creator from an EPUB OPF without a WebView.
+  ///
+  /// The file browser registers books in bulk; starting `getBookMetadata`
+  /// for each one would fetch the whole book into a Chromium Blob and
+  /// recreate the `blob_storage` blow-up. Only the zip central directory
+  /// and the two small XML entries are inflated here.
+  static Future<({String? title, String? author})?> readEpubMetadata(
+    String path,
+  ) async {
+    if (p.extension(path).toLowerCase() != '.epub') return null;
+    final input = InputFileStream(path);
+    try {
+      final zip = ZipDirectory.read(input);
+      final headers = <String, ZipFileHeader>{};
+      for (final header in zip.fileHeaders) {
+        final name = _normalize(header.filename);
+        if (name.isNotEmpty && !name.endsWith('/')) headers[name] = header;
+      }
+      if (headers.isEmpty) return null;
+
+      var opfPath = 'OEBPS/content.opf';
+      final container = await _text(headers, 'META-INF/container.xml');
+      if (container != null) {
+        try {
+          final doc = XmlDocument.parse(container);
+          for (final node in doc.descendants.whereType<XmlElement>()) {
+            if (node.name.local != 'rootfile') continue;
+            final fullPath = node.getAttribute('full-path');
+            if (fullPath != null && fullPath.isNotEmpty) {
+              opfPath = _normalize(fullPath);
+            }
+            break;
+          }
+        } catch (_) {
+          // Fall back to the conventional path / scanning for *.opf.
+        }
+      }
+      final opf =
+          await _text(headers, opfPath) ?? await _firstOpfText(headers);
+      if (opf == null) return null;
+
+      try {
+        final doc = XmlDocument.parse(opf);
+        for (final metadata in doc.descendants.whereType<XmlElement>()) {
+          if (metadata.name.local != 'metadata') continue;
+          String? title;
+          final authors = <String>[];
+          for (final node in metadata.children.whereType<XmlElement>()) {
+            final local = node.name.local.toLowerCase();
+            final prefix = (node.name.prefix ?? '').toLowerCase();
+            if (local != 'title' && local != 'creator') continue;
+            // Dublin Core is the normal case; accept unprefixed elements in
+            // the few OPFs that declare a default DC namespace.
+            if (prefix.isNotEmpty && prefix != 'dc') continue;
+            final value = node.innerText.replaceAll(RegExp(r'\s+'), ' ').trim();
+            if (value.isEmpty) continue;
+            if (local == 'title') {
+              title ??= _usableTitle(value);
+            } else if (authors.length < 8 && !authors.contains(value)) {
+              authors.add(value);
+            }
+          }
+          return (
+            title: title,
+            author: authors.isEmpty ? null : authors.join(', '),
+          );
+        }
+      } catch (_) {
+        // A malformed OPF is not fatal: callers keep the file-name fallback.
+      }
+      return null;
+    } catch (_) {
+      return null;
+    } finally {
+      await input.close();
+    }
+  }
+
+  static String? _usableTitle(String value) =>
+      value.toLowerCase() == 'unknown' ? null : value;
+
   // ---------------------------------------------------------------------------
   // PDF: first page via Android's system renderer (API 21+). No Dart PDF
   // package exists in this project and the WebView route is what we are

@@ -47,6 +47,11 @@ class BookCover extends StatelessWidget {
       // Idempotent, serial, and capped. Rebuilds when a cover lands.
       LinkedBookRegistry.requestCover(book);
     }
+    // Older file-browser rows carry the file name as their title. Backfill
+    // from the EPUB OPF in the background; never overwrites a custom name.
+    LinkedBookRegistry.requestMetadata(book);
+    final displayTitle = LinkedBookRegistry.titleFor(book) ?? book.title;
+    final displayAuthor = LinkedBookRegistry.authorFor(book) ?? book.author;
 
     Widget child;
 
@@ -77,7 +82,7 @@ class BookCover extends StatelessWidget {
           final padding = coverWidth * 0.08;
 
           final backgroundColor = Colors
-              .primaries[book.title.hashCode % Colors.primaries.length]
+              .primaries[displayTitle.hashCode % Colors.primaries.length]
               .shade200;
           final textColor = _getContrastColor(backgroundColor);
 
@@ -98,7 +103,7 @@ class BookCover extends StatelessWidget {
                         // Title at top
                         if (showTitle)
                           Text(
-                            book.title,
+                            displayTitle,
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
@@ -112,7 +117,7 @@ class BookCover extends StatelessWidget {
                         // Author at bottom
                         if (showAuthor)
                           Text(
-                            book.author,
+                            displayAuthor,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
