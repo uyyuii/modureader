@@ -16,6 +16,7 @@ class BookStyle {
   int maxColumnCount;
   double headingFontSize;
   double columnThreshold;
+  bool textSpacingTrim;
 
   BookStyle({
     this.fontSize = 1.4,
@@ -33,6 +34,7 @@ class BookStyle {
     this.maxColumnCount = 0,
     this.headingFontSize = 1.0,
     this.columnThreshold = 720.0,
+    this.textSpacingTrim = false,
   });
 
   BookStyle copyWith({
@@ -51,6 +53,7 @@ class BookStyle {
     int? maxColumnCount,
     double? headingFontSize,
     double? columnThreshold,
+    bool? textSpacingTrim,
   }) {
     return BookStyle(
       fontSize: fontSize ?? this.fontSize,
@@ -68,6 +71,7 @@ class BookStyle {
       maxColumnCount: maxColumnCount ?? this.maxColumnCount,
       headingFontSize: headingFontSize ?? this.headingFontSize,
       columnThreshold: columnThreshold ?? this.columnThreshold,
+      textSpacingTrim: textSpacingTrim ?? this.textSpacingTrim,
     );
   }
 
@@ -88,6 +92,7 @@ class BookStyle {
       'maxColumnCount': maxColumnCount,
       'headingFontSize': headingFontSize,
       'columnThreshold': columnThreshold,
+      'textSpacingTrim': textSpacingTrim,
     };
   }
 
@@ -108,7 +113,8 @@ class BookStyle {
       "indent": $indent,
       "maxColumnCount": $maxColumnCount,
       "headingFontSize": $headingFontSize,
-      "columnThreshold": $columnThreshold
+      "columnThreshold": $columnThreshold,
+      "textSpacingTrim": $textSpacingTrim
     }
     ''';
   }
@@ -121,9 +127,12 @@ class BookStyle {
     double fontsSize = data['fontSize'] is String
         ? double.parse(data['fontSize'])
         : data['fontSize'];
-    double paragraphSpacing = data['paragraphSpacing'] is String
-        ? double.parse(data['paragraphSpacing'])
-        : data['paragraphSpacing'];
+    double paragraphSpacing = (data['paragraphSpacing'] is String
+        ? double.tryParse(data['paragraphSpacing'])
+        : data['paragraphSpacing'] is num
+            ? (data['paragraphSpacing'] as num).toDouble()
+            : null) ??
+        1.5;
     double fontWeight = data['fontWeight'] == null
         ? 400
         : data['fontWeight'] is String
@@ -133,9 +142,11 @@ class BookStyle {
     if (fontsSize > 3 || fontsSize < 0.5) {
       fontsSize = 1.4;
     }
-    if (paragraphSpacing > 3 || paragraphSpacing < 0) {
-      paragraphSpacing = 1.5;
-    }
+    // 段距滑块上限为 5（见 style_widget.dart lineHeightAndParagraphSpacingSlider）。
+    // 旧实现把 >3 静默重置成 1.5，导致用户设的 3.1~5 重开书后跳回；
+    // 这里改为钳制到滑块允许的 [0, 5]，区间内的值原样保留。
+    if (paragraphSpacing.isNaN) paragraphSpacing = 1.5;
+    paragraphSpacing = paragraphSpacing.clamp(0.0, 5.0);
 
     return BookStyle(
       fontSize: fontsSize,
@@ -181,6 +192,8 @@ class BookStyle {
           : data['columnThreshold'] is String
               ? double.parse(data['columnThreshold'])
               : data['columnThreshold'],
+      // 老配置里没有该键，默认 false 保持原有排版不变。
+      textSpacingTrim: data['textSpacingTrim'] == true,
     );
   }
 }

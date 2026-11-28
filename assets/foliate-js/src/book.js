@@ -474,12 +474,12 @@ const getCSS = ({ fontSize,
   fontWeight,
   simulateBold,
   letterSpacing,
+  wordSpacing,
   spacing,
   textIndent,
   paragraphSpacing,
   fontColor,
   backgroundColor,
-  justify,
   textAlign,
   hyphenate,
   writingMode,
@@ -491,7 +491,8 @@ const getCSS = ({ fontSize,
   headingFontSize,
   codeHighlightTheme,
   eInkMode,
-  eInkDisableAnimations
+  eInkDisableAnimations,
+  textSpacingTrim
 }) => {
 
   const { faces: fontFaces, family: fontFamily } = readerFontCSS({
@@ -499,6 +500,11 @@ const getCSS = ({ fontSize,
   })
 
   const writingModeCSS = writingMode === 'auto' ? '' : `writing-mode: ${writingMode} !important;`
+
+  // Custom CSS is injected at the end of getCSS(). When it is enabled, drop
+  // !important from the typography controls so user rules can actually win;
+  // otherwise these built-ins must still beat the publisher's stylesheet.
+  const userOverride = customCSSEnabled ? '' : ' !important'
 
   // Background images are rendered by the paginator layer so blur/opacity
   // controls apply consistently across the whole reading surface.
@@ -519,7 +525,7 @@ const getCSS = ({ fontSize,
         ${backgroundImageCSS}
         background-color: transparent !important;
         ${useBookStyles ? '' : `letter-spacing: ${letterSpacing}px;`}
-        ${useBookStyles ? '' : `font-size: ${fontSize}em;`}
+        ${useBookStyles ? '' : `font-size: ${fontSize}em${userOverride};`}
         orphans: 1;  
         widows: 1;
     }
@@ -570,36 +576,37 @@ const getCSS = ({ fontSize,
 
     ${useBookStyles ? '' : `
     h1 { 
-        font-size: calc(2em * ${headingFontSize}) !important; 
-        line-height: ${spacing} !important;
+        font-size: calc(2em * ${headingFontSize})${userOverride}; 
+        line-height: ${spacing}${userOverride};
     }
     h2 { 
-        font-size: calc(1.5em * ${headingFontSize}) !important; 
-        line-height: ${spacing} !important;
+        font-size: calc(1.5em * ${headingFontSize})${userOverride}; 
+        line-height: ${spacing}${userOverride};
     }
     h3 { 
-        font-size: calc(1.17em * ${headingFontSize}) !important; 
-        line-height: ${spacing} !important;
+        font-size: calc(1.17em * ${headingFontSize})${userOverride}; 
+        line-height: ${spacing}${userOverride};
     }
     h4 { 
-        font-size: calc(1em * ${headingFontSize}) !important; 
-        line-height: ${spacing} !important;
+        font-size: calc(1em * ${headingFontSize})${userOverride}; 
+        line-height: ${spacing}${userOverride};
     }
     h5 { 
-        font-size: calc(0.83em * ${headingFontSize}) !important; 
-        line-height: ${spacing} !important;
+        font-size: calc(0.83em * ${headingFontSize})${userOverride}; 
+        line-height: ${spacing}${userOverride};
     }
     h6 { 
-        font-size: calc(0.67em * ${headingFontSize}) !important; 
-        line-height: ${spacing} !important;
+        font-size: calc(0.67em * ${headingFontSize})${userOverride}; 
+        line-height: ${spacing}${userOverride};
     }
     `}
 
     p, li, blockquote, dd, ${(globalThis.CSS?.supports?.('selector(:has(*))') ?? true) ? 'div:not(:has(*:not(b, a, em, i, strong, u, span, modu-page-run)))' : 'div[data-modu-paragraph]'}, font {
         color: var(--modu-reader-font-color, ${fontColor}) !important;
-        ${useBookStyles ? '' : `line-height: ${spacing} !important;`}
-        ${useBookStyles ? '' : `text-align: ${textAlign === 'auto' ? (justify ? 'justify' : 'start') : textAlign};`}
-        ${useBookStyles || textIndent < 0 ? '' : 'text-indent: ' + textIndent + 'em !important;'}
+        ${useBookStyles ? '' : `line-height: ${spacing}${userOverride};`}
+        ${useBookStyles || textAlign === 'auto' ? '' : `text-align: ${textAlign};`}
+        ${useBookStyles || textIndent < 0 ? '' : 'text-indent: ' + textIndent + 'em' + userOverride + ';'}
+        ${useBookStyles ? '' : `word-spacing: ${wordSpacing}px${userOverride};`}
         -webkit-hyphens: ${hyphenate ? 'auto' : 'manual'};
         hyphens: ${hyphenate ? 'auto' : 'manual'};
         -webkit-hyphenate-limit-before: 3;
@@ -607,8 +614,8 @@ const getCSS = ({ fontSize,
         -webkit-hyphenate-limit-lines: 2;
         hanging-punctuation: allow-end last;
         ${useBookStyles ? '' : 'widows: 1; orphans: 1;'}
-        ${useBookStyles ? '' : `margin-block-start: ${paragraphSpacing / 2}em !important;`}
-        ${useBookStyles ? '' : `margin-block-end: ${paragraphSpacing / 2}em !important;`}
+        ${useBookStyles ? '' : `margin-block-start: ${paragraphSpacing / 2}em${userOverride};`}
+        ${useBookStyles ? '' : `margin-block-end: ${paragraphSpacing / 2}em${userOverride};`}
     }
 
     .anx-text-center,
@@ -618,6 +625,23 @@ const getCSS = ({ fontSize,
         text-indent: 0 !important;
     }
 
+    ${!useBookStyles && textSpacingTrim ? `
+    /* 标点挤压（对标 Reeden 排版增强）：压缩行首/行尾标点占用的空白。
+       text-spacing-trim 需较新 WebView；@supports 保证旧内核安全忽略，
+       space-first 同时兼顾行首避头与连续标点的紧凑。 */
+    @supports (text-spacing-trim: space-first) {
+        html, body, p, li, blockquote, dd, div, h1, h2, h3, h4, h5, h6 {
+            text-spacing-trim: space-first;
+        }
+    }
+    /* Android WebView 历史实现使用 -webkit- 前缀或 text-autospace 控制西文/标点间距，
+       作为降级路径一并处理，避免不同内核表现不一致。 */
+    @supports (text-autospace: normal) {
+        html, body, p, li, blockquote, dd {
+            text-autospace: normal;
+        }
+    }
+    ` : ''}
 
     /*  Paragraphs containing only an image — don't change */
     ${(globalThis.CSS?.supports?.('selector(:has(*))') ?? true) ? `p:has(> img:only-child),
@@ -1772,12 +1796,12 @@ const setStyle = (oldStyle) => {
     fontWeight: style.fontWeight,
     simulateBold: style.simulateBold,
     letterSpacing: style.letterSpacing,
+    wordSpacing: style.wordSpacing,
     spacing: style.spacing,
     paragraphSpacing: style.paragraphSpacing,
     textIndent: style.textIndent,
     fontColor: style.fontColor,
     backgroundColor: style.backgroundColor,
-    justify: style.justify,
     textAlign: style.textAlign,
     hyphenate: style.hyphenate,
     writingMode: style.writingMode,
@@ -1786,7 +1810,8 @@ const setStyle = (oldStyle) => {
     customCSS: style.customCSS,
     customCSSEnabled: style.customCSSEnabled,
     useBookStyles: style.useBookStyles,
-    headingFontSize: style.headingFontSize
+    headingFontSize: style.headingFontSize,
+    textSpacingTrim: style.textSpacingTrim
   }
   reader.view.renderer.setStyles?.(getCSS(newStyle), { paintOnly, fontColor: style.fontColor })
   if (!paintOnly) {

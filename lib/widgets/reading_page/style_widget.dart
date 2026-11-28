@@ -147,6 +147,8 @@ class StyleWidgetState extends State<StyleWidget> {
         widgetTitle(L10n.of(context).readingPageStyle,
             _document ? null : ReadingSettings.theme,
             onSettings: _document ? widget.onDocumentSettings : null),
+        if (!_document && Prefs().useBookStyles)
+          _bookStylesOverrideNotice(context),
         ReaderMenuGroup(padding: const EdgeInsets.all(12), child: sliders()),
         ReaderMenuGroup(
           padding: const EdgeInsets.all(12),
@@ -195,6 +197,43 @@ class StyleWidgetState extends State<StyleWidget> {
             )),
       ],
     ));
+  }
+
+  /// 当「使用书籍中的样式」开启时，字号/行距/段距/缩进等滑块会被置灰。
+  /// 这里给出明确说明，避免用户以为设置失效或 App 出了问题。
+  Widget _bookStylesOverrideNotice(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: colors.secondaryContainer,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.info_outline, size: 18, color: colors.onSecondaryContainer),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                ModuStrings.text(
+                  context,
+                  '已开启「使用书籍中的样式」：字号、行距、段距、缩进、字重等设置暂不生效，改用电子书自带的排版。关闭后可恢复自定义。',
+                  'Using book styles: font size, line/paragraph spacing, indent and weight are managed by the book and disabled here. Turn it off to customize again.',
+                ),
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.5,
+                  color: colors.onSecondaryContainer,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   List<FontModel> fonts() {

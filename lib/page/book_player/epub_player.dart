@@ -875,6 +875,7 @@ class EpubPlayerState extends ConsumerState<EpubPlayer> {
         bottomMargin: ${style.bottomMargin},
         sideMargin: ${style.sideMargin},
         letterSpacing: ${style.letterSpacing},
+        wordSpacing: ${style.wordSpacing},
         textIndent: ${style.indent},
         maxColumnCount: ${style.maxColumnCount},
         columnThreshold: ${style.columnThreshold},
@@ -893,6 +894,7 @@ class EpubPlayerState extends ConsumerState<EpubPlayer> {
         customCSSEnabled: ${Prefs().customCssSelection(cssBookKey).enabled},
         useBookStyles: ${Prefs().useBookStyles},
         headingFontSize: ${style.headingFontSize},
+        textSpacingTrim: ${style.textSpacingTrim},
         codeHighlightTheme: '${Prefs().codeHighlightTheme.code}',
       })
       ''');

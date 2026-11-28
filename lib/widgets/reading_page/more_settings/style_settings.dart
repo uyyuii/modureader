@@ -195,6 +195,24 @@ class _StyleSettingsState extends State<StyleSettings> {
       );
     }
 
+    Widget wordSpacingSlider(BookStyle bookStyle, StateSetter setState) {
+      bool enabled = !_document && !Prefs().useBookStyles;
+      return StyleSlider(
+        icon: Icons.compare_arrows,
+        label: ModuStrings.text(context, '词间距', 'Word spacing'),
+        value: bookStyle.wordSpacing,
+        onChanged: (double value) {
+          setState(() => bookStyle.wordSpacing = value);
+          _saveBookStyle(bookStyle);
+        },
+        min: -2,
+        max: 8,
+        divisions: 20,
+        labelFormatter: (value) => value.toStringAsFixed(1),
+        enabled: enabled,
+      );
+    }
+
     Row topBottomMarginSlider(BookStyle bookStyle, StateSetter setState) {
       return Row(children: [
         !_document && Prefs().writingMode == WritingModeEnum.verticalRl
@@ -366,6 +384,24 @@ class _StyleSettingsState extends State<StyleSettings> {
       );
     }
 
+    Widget textSpacingTrimSwitch(BookStyle bookStyle, StateSetter setState) {
+      return SwitchListTile(
+        title: SettingHelpTitle(
+          title: ModuStrings.text(context, '标点挤压', 'Punctuation trimming'),
+          description: ModuStrings.text(
+            context,
+            '压缩行首行尾标点占用的空白，让中文排版更紧凑（对标 Reeden）。需较新系统 WebView 支持。',
+            'Trim leading/trailing punctuation spacing for tighter Chinese layout. Requires a recent system WebView.',
+          ),
+        ),
+        value: bookStyle.textSpacingTrim,
+        onChanged: (bool value) {
+          setState(() => bookStyle.textSpacingTrim = value);
+          _saveBookStyle(bookStyle);
+        },
+      );
+    }
+
     Widget sliders() {
       final document = widget.documentStyle;
       BookStyle bookStyle = document == null
@@ -384,8 +420,14 @@ class _StyleSettingsState extends State<StyleSettings> {
             topBottomMarginSlider(bookStyle, setState),
             letterSpacingSlider(bookStyle, setState),
             ReaderSettingAvailability(
+                enabled: !_document && !Prefs().useBookStyles,
+                child: wordSpacingSlider(bookStyle, setState)),
+            ReaderSettingAvailability(
                 enabled: !_document,
                 child: headingFontSizeSlider(bookStyle, setState)),
+            ReaderSettingAvailability(
+                enabled: !_document && !Prefs().useBookStyles,
+                child: textSpacingTrimSwitch(bookStyle, setState)),
           ],
         ),
       );

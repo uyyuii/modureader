@@ -98,6 +98,9 @@ String generateUrl(
     'fontWeight': bookStyle.fontWeight,
     'simulateBold': bookStyle.simulateBold,
     'letterSpacing': bookStyle.letterSpacing,
+    // wordSpacing used to be stored in BookStyle but never reached the
+    // renderer, so the word-spacing slider had no effect.
+    'wordSpacing': bookStyle.wordSpacing,
     'spacing': bookStyle.lineHeight,
     'paragraphSpacing': bookStyle.paragraphSpacing,
     'textIndent': bookStyle.indent,
@@ -106,7 +109,8 @@ String generateUrl(
     'topMargin': bookStyle.topMargin,
     'bottomMargin': bookStyle.bottomMargin,
     'sideMargin': bookStyle.sideMargin,
-    'justify': true,
+    // Alignment "auto" now respects the book's own CSS. The old hardcoded
+    // justify flag forced every paragraph to both-end alignment.
     'hyphenate': false,
     'pageTurnStyle': Prefs().pageTurnStyle.name,
     'maxColumnCount': bookStyle.maxColumnCount,
@@ -133,6 +137,7 @@ String generateUrl(
     'customCSSEnabled': Prefs().customCssSelection(cssBookKey).enabled,
     'useBookStyles': Prefs().useBookStyles,
     'headingFontSize': bookStyle.headingFontSize,
+    'textSpacingTrim': bookStyle.textSpacingTrim,
     'codeHighlightTheme': Prefs().codeHighlightTheme.code,
   };
 
